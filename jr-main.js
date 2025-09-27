@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 7.2–12s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (Faster by ~30s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
 // @namespace    http://tampermonkey.net/
-// @version      3.4
-// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (4–5 cycles, must reach bottom) then click internal link (exclude homepage & search, prefer tags). Tracks 13 navigations in this tab and tries to close.
+// @version      3.5
+// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (fewer/faster cycles, still reaches bottom) then click internal link (exclude homepage & search, prefer tags). Cuts ~30s from page time while keeping the 15–20s initial delay.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -25,17 +25,13 @@
   function tryCloseTab(reason) {
     console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
     window.close();
-    setTimeout(() => {
-      try { window.open('', '_self'); window.close(); } catch {}
-    }, 150);
-    setTimeout(() => {
-      try { location.replace('about:blank'); } catch {}
-    }, 350);
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+    setTimeout(() => { try { location.replace('about:blank'); } catch {} }, 350);
   }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
-    if (n >= 10) {
-      setTimeout(() => tryCloseTab('limit reached on load (>=10)'), 1200);
+    if (n >= 13) { // unified to 13 everywhere
+      setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
     }
   })();
 
@@ -274,25 +270,33 @@
   console.log('[ImgBlock] Active (top page). Allowed image hosts:', ALLOW_HOSTS.map(r => r.source).join(', '));
 
   /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER (starts later; image-block safe)
+   *  B) HUMAN-LIKE SCROLLER — tuned to be ~30s faster overall
    ******************************************************************/
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
-    try { const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1); sessionStorage.setItem('pv_count', String(pv)); window.__pageviews_in_tab = pv; console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.'); }
-    catch (e) { console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.'); window.__pageviews_in_tab = 1; }
+    try {
+      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
+      sessionStorage.setItem('pv_count', String(pv));
+      window.__pageviews_in_tab = pv;
+      console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
+    } catch (e) {
+      console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
+      window.__pageviews_in_tab = 1;
+    }
   })();
 
-  const START_DELAY_MS = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
-  const SCROLL_DIST_MIN_PX = 600, SCROLL_DIST_MAX_PX = 900;
-  const SCROLL_DUR_MIN_MS  = 7200, SCROLL_DUR_MAX_MS  = 12000; // Increased by 20% from 6000–10000
-  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (5 - 4 + 1)) + 4;
-  const READ_PAUSE_MIN_MS  = 500,  READ_PAUSE_MAX_MS  = 1500;
-  const BOTTOM_CONFIRM_MS  = 1500;
-  const PRE_CLICK_WAIT_MS  = 5000; // 10s wait before clicking link
+  const START_DELAY_MS    = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // keep 15–20s
+  const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;   // ↑ longer steps to reach bottom sooner
+  const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 5000;   // ↓ faster per-cycle (was 7200–12000)
+  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // ↓ 3–4 cycles (was 4–5)
+  const READ_PAUSE_MIN_MS  = 200,  READ_PAUSE_MAX_MS  = 600;    // ↓ shorter read pauses
+  const BOTTOM_CONFIRM_MS  = 900;                                // ↓ quicker confirm
+  const PRE_CLICK_WAIT_MS  = 4000;                               // ↓ shorter pre-click wait (~4s)
 
-  const CLICK_AFTER_MIN_MS = 1200, CLICK_AFTER_MAX_MS = 3200, SAME_HOST_ONLY = true;
-  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.60, FORM_CLICK_HOVER_MS = 350;
-  const WANDER_STEPS_MIN = 2, WANDER_STEPS_MAX = 4, WANDER_STEP_MS = 300, FINAL_HOVER_MS = 350;
+  const CLICK_AFTER_MIN_MS = 800, CLICK_AFTER_MAX_MS = 1600;     // ↓ faster aim
+  const SAME_HOST_ONLY = true;
+  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.60, FORM_CLICK_HOVER_MS = 300; // small hover trim
+  const WANDER_STEPS_MIN = 2, WANDER_STEPS_MAX = 3, WANDER_STEP_MS = 260, FINAL_HOVER_MS = 300; // ↓ lighter cursor wander
 
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
   function atBottom(threshold) {
@@ -459,7 +463,7 @@
     cursorWander(cursor, wanderSteps, function () {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(function () {
-        console.log('[HumanScroll] Waiting 10s before clicking:', link.href);
+        console.log('[HumanScroll] Waiting ~' + PRE_CLICK_WAIT_MS + 'ms before clicking:', link.href);
         setTimeout(function () {
           console.log('[HumanScroll] Clicking:', link.href);
           beforeNavigateIncrement();
@@ -549,9 +553,9 @@
       const forms = getCandidateForms();
       if (forms.length) {
         const form = forms[randInt(0, forms.length - 1)];
-        console.log('[HumanScroll] Chose FORM (40% path). Filling & submitting:', form);
+        console.log('[HumanScroll] Chose FORM path. Filling & submitting:', form);
         try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-        setTimeout(function () { fillFormFields(form); submitFormWithCursor(form); }, randInt(700, 1500));
+        setTimeout(function () { fillFormFields(form); submitFormWithCursor(form); }, randInt(600, 1100));
         return;
       } else { console.log('[HumanScroll] No safe forms found. Falling back to link click.'); }
     }
@@ -563,7 +567,7 @@
   function scrollToLinkThenClick(link) {
     try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     catch (e) { link.scrollIntoView(true); }
-    setTimeout(function () { checkAndSendDepth(); }, 250);
+    setTimeout(function () { checkAndSendDepth(); }, 200);
     const wait = randInt(CLICK_AFTER_MIN_MS, CLICK_AFTER_MAX_MS);
     setTimeout(function () {
       if (!isDisplayed(link)) {
@@ -574,7 +578,7 @@
       }
       if (!inViewport(link)) {
         try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-        return setTimeout(function () { clickWithCursorFlow(link); }, randInt(400, 900));
+        return setTimeout(function () { clickWithCursorFlow(link); }, randInt(300, 600));
       }
       clickWithCursorFlow(link);
     }, wait);
@@ -600,6 +604,7 @@
       })(performance.now());
     });
   }
+
   function doOneScrollCycle() {
     const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
     const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
@@ -608,6 +613,7 @@
       return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
     });
   }
+
   function confirmBottomStable(cb) {
     const initialHeight = Math.max(
       document.body.scrollHeight, document.documentElement.scrollHeight,
@@ -624,6 +630,7 @@
       if (Math.abs(newHeight - initialHeight) < 4) cb();
     }, BOTTOM_CONFIRM_MS);
   }
+
   function runScrollsUntilBottomThenAct() {
     let cyclesDone = 0;
     (function loop() {
@@ -645,7 +652,7 @@
 
   setTimeout(function () {
     checkAndSendDepth();
-    if (getNavCount() >= 10) { tryCloseTab('limit reached before scrolling'); return; }
+    if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
     runScrollsUntilBottomThenAct();
   }, START_DELAY_MS);
 
