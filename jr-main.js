@@ -555,22 +555,25 @@ async function fastScrollToBottom(durationMs) {
 
   setTimeout(async function () {
   checkAndSendDepth();
-
   if (getNavCount() >= 13) { 
     tryCloseTab('limit reached before scrolling'); 
     return; 
   }
 
-  // Step A: slow scroll for ~10s
-  await slowHumanScroll(10000);  // <-- 10 seconds
+  // ① Smooth scroll ~900px over ~8–10s
+  await animateScrollByPx(900, randInt(8000, 10000));
 
-  // Step B: fast burst to bottom (~0.7–1.0s)
-  await fastScrollToBottom(randInt(700, 1000));
+  // ② Pause 5s
+  await new Promise(r => setTimeout(r, 5000));
 
-  // Step C: continue with link click / navigate
+  // ③ Slower “burst” to bottom (2–3s)
+  await fastScrollToBottom(randInt(2000, 3000));
+
+  // ④ Continue with click/navigation
   tryLinkFlow();
 
 }, START_DELAY_MS);
+
 
 
 })();
