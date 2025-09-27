@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (Fast Exit) [No-Homepage/Search-Clicks, Prefer Tags, Close @13] (Click-now, Short-Scroll-then-Navigate)
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (Swipe→Pause→Gentle Burst) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
 // @namespace    http://tampermonkey.net/
-// @version      3.6
-// @description  Blocks normal images on jrsports.click (allows AdSense). Clicks internal link immediately, then ~5s slow scroll + fast scroll-to-bottom, then navigates (post-click delay reduced by ~10s). Also halves initial wait before action.
+// @version      3.7
+// @description  Blocks non-ad images. After 15–20s idle, performs a touch-like flick (~900px), micro read nudges, 5s pause, then a gentle sweep to bottom, and finally clicks an internal link and navigates (no extra post-click scroll).
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -19,18 +19,12 @@
   function getNavCount() {
     try { return parseInt(sessionStorage.getItem(NAV_KEY) || '0', 10) || 0; } catch { return 0; }
   }
-  function setNavCount(n) {
-    try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {}
-  }
+  function setNavCount(n) { try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {} }
   function tryCloseTab(reason) {
     console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
     window.close();
-    setTimeout(() => {
-      try { window.open('', '_self'); window.close(); } catch {}
-    }, 150);
-    setTimeout(() => {
-      try { location.replace('about:blank'); } catch {}
-    }, 350);
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+    setTimeout(() => { try { location.replace('about:blank'); } catch {} }, 350);
   }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
@@ -38,7 +32,7 @@
   })();
 
   /******************************************************************
-   *  A) IMAGE CONTROL — allow Google Ads, block the rest
+   * A) IMAGE CONTROL — allow Google Ads, block the rest
    ******************************************************************/
   const HIDE_NON_AD_IFRAMES = true;
   const ALLOW_HOSTS = [
@@ -267,26 +261,57 @@
   console.log('[ImgBlock] Active (top page).');
 
   /******************************************************************
-   *  B) HUMAN-LIKE ACTION FLOW — faster overall
+   * B) HUMAN-LIKE ACTION FLOW — swipe→pause→gentle burst
    ******************************************************************/
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
-    try { const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1); sessionStorage.setItem('pv_count', String(pv)); window.__pageviews_in_tab = pv; console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.'); }
-    catch (e) { console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.'); window.__pageviews_in_tab = 1; }
+    try {
+      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
+      sessionStorage.setItem('pv_count', String(pv));
+      window.__pageviews_in_tab = pv;
+      console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
+    } catch (e) {
+      console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
+      window.__pageviews_in_tab = 1;
+    }
   })();
 
-  // ↓ Halved initial start delay (was 15–20s)
-  const START_DELAY_MS = randInt(15000, 20000); // 7–10s
-
-  // ↓ Post-click behavior:
-  //    1) ~5s slow human scroll
-  //    2) fast scroll to bottom (~0.7–1.0s)
-  //    3) navigate immediately
-  const SLOW_AFTER_CLICK_MS = 5000;           // ~5s slow scroll
-  const FAST_TO_BOTTOM_MS   = randInt(700, 1000); // quick sweep to bottom
-
-  // Misc helpers
+  // Initial start delay (keep 15–20s)
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  const START_DELAY_MS = randInt(15000, 20000); // 15–20s
+  function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+  // Easing + swipe/micro-nudge + gentle burst helpers
+  function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+  function easeInOutQuad(t){ return t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t; }
+
+  function getPercentScrolled() {
+    const y = window.pageYOffset || document.documentElement.scrollTop || 0;
+    const view = window.innerHeight || document.documentElement.clientHeight || 0;
+    const full = Math.max(
+      document.body.scrollHeight, document.documentElement.scrollHeight,
+      document.body.offsetHeight, document.documentElement.offsetHeight,
+      document.body.clientHeight, document.documentElement.clientHeight
+    );
+    const pos = Math.min(full, y + view);
+    return Math.max(0, Math.min(100, Math.round((pos / full) * 100)));
+  }
+  const firedPercents = new Set();
+  const BREAKPOINTS = [25, 50, 75, 90, 100];
+  function sendScrollDepth(percent) {
+    if (firedPercents.has(percent)) return; firedPercents.add(percent);
+    if (typeof window.gtag === 'function') window.gtag('event', 'scroll_depth', { percent });
+    else if (Array.isArray(window.dataLayer)) window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title });
+  }
+  function checkAndSendDepth() {
+    const pct = getPercentScrolled();
+    for (let i = 0; i < BREAKPOINTS.length; i++) if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
+  }
+  window.addEventListener('scroll', function () {
+    if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
+    checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
+  }, { passive: true });
+
   function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
   function isGoodHref(href) {
     if (!href) return false;
@@ -329,45 +354,6 @@
     } catch {}
     return false;
   }
-  function inViewport(el) {
-    const r = el.getBoundingClientRect();
-    return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight);
-  }
-  function isDisplayed(el) {
-    if (!el) return false;
-    if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return false;
-    const style = window.getComputedStyle(el);
-    if (style.visibility === 'hidden' || style.display === 'none') return false;
-    return true;
-  }
-
-  // Scroll depth events (kept lightweight)
-  const firedPercents = new Set();
-  const BREAKPOINTS = [25, 50, 75, 90, 100];
-  function getPercentScrolled() {
-    const y = window.pageYOffset || document.documentElement.scrollTop || 0;
-    const view = window.innerHeight || document.documentElement.clientHeight || 0;
-    const full = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    const pos = Math.min(full, y + view);
-    return Math.max(0, Math.min(100, Math.round((pos / full) * 100)));
-  }
-  function sendScrollDepth(percent) {
-    if (firedPercents.has(percent)) return; firedPercents.add(percent);
-    if (typeof window.gtag === 'function') window.gtag('event', 'scroll_depth', { percent });
-    else if (Array.isArray(window.dataLayer)) window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title });
-  }
-  function checkAndSendDepth() {
-    const pct = getPercentScrolled();
-    for (let i = 0; i < BREAKPOINTS.length; i++) if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
-  }
-  window.addEventListener('scroll', function () {
-    if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
-    checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
-  }, { passive: true });
 
   function getAllCandidateLinks() {
     const links = Array.from(document.querySelectorAll('a[href]'));
@@ -388,7 +374,7 @@
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // Cursor visuals (unchanged)
+  // Cursor visuals (minimal)
   function createFakeCursor() {
     const cursor = document.createElement('div');
     cursor.style.position = 'fixed';
@@ -407,18 +393,6 @@
   }
   function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
   function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
-  function cursorWander(cursor, steps, stepMs, cb) {
-    steps = Math.max(0, steps|0);
-    let i = 0;
-    (function step() {
-      if (i >= steps) { cb && cb(); return; }
-      i++;
-      const x = randInt(30, Math.max(60, window.innerWidth - 30));
-      const y = randInt(30, Math.max(60, window.innerHeight - 30));
-      moveCursorTo(cursor, x, y);
-      setTimeout(step, stepMs);
-    })();
-  }
 
   function beforeNavigateIncrement() {
     const n = getNavCount() + 1;
@@ -427,56 +401,68 @@
     else console.log('[HumanScroll] Navigation count =', n);
   }
 
-  // --- New: Post-click scroll sequence, then navigate ---
-  function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+  // --- Swipe (flick), micro-nudge, and gentle burst implementations ---
+  function swipeScroll(distancePx, durationMs){
+    return new Promise(resolve=>{
+      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      const maxY = Math.max(
+        document.body.scrollHeight, document.documentElement.scrollHeight,
+        document.body.offsetHeight, document.documentElement.offsetHeight,
+        document.body.clientHeight, document.documentElement.clientHeight
+      ) - (window.innerHeight || document.documentElement.clientHeight || 0);
 
- function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+      const targetY = Math.max(0, Math.min(maxY, startY + distancePx)); // clamp
+      const dist = targetY - startY;
+      const t0 = performance.now();
 
-// ↑ NEW: allow a slightly faster slow-scroll via amplitudePx
-async function slowHumanScroll(durationMs, amplitudePx = 180) { // was 120 → 180 (a bit faster)
-  return new Promise(resolve => {
-    const startT = performance.now();
-    let lastY = window.pageYOffset || document.documentElement.scrollTop || 0;
-    (function frame(now) {
-      const t = Math.min(1, (now - startT) / durationMs);
-      const step = amplitudePx * (0.5 - Math.cos(t * Math.PI) / 2); // eased micro-steps
-      const targetY = lastY + step;
-      const delta = targetY - (window.pageYOffset || document.documentElement.scrollTop || 0);
-      window.scrollBy(0, delta);
-      if (t < 1) requestAnimationFrame(frame);
-      else resolve();
-    })(performance.now());
-  });
-}
+      (function frame(now){
+        const t = Math.min(1, (now - t0) / durationMs);
+        const y = startY + dist * easeOutCubic(t); // fast start → ease out
+        window.scrollTo(0, y);
+        checkAndSendDepth();
+        if (t < 1) requestAnimationFrame(frame); else resolve();
+      })(performance.now());
+    });
+  }
 
-// ↓ Slower “burst” than before (increase duration → lower speed)
-async function fastScrollToBottom(durationMs) {
-  return new Promise(resolve => {
-    const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
-    const full = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    const maxY = full - (window.innerHeight || document.documentElement.clientHeight || 0);
-    const dist = Math.max(0, maxY - startY);
-    if (dist <= 2) return resolve();
+  async function microReadNudge(){
+    const n = randInt(1,3);
+    for(let i=0;i<n;i++){
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const px  = randInt(18, 60) * dir;     // small adjust
+      const dur = randInt(120, 260);         // quick nudge
+      await swipeScroll(px, dur);
+      await sleep(randInt(180, 400));
+    }
+  }
 
-    const startT = performance.now();
-    (function frame(now) {
-      const t = Math.min(1, (now - startT) / durationMs);
-      // gentle ease (slower burst): easeInOutQuad
-      const eased = (t < 0.5) ? 2*t*t : -1 + (4 - 2*t)*t;
-      const y = startY + dist * eased;
-      window.scrollTo(0, y);
-      if (t < 1) requestAnimationFrame(frame);
-      else resolve();
-    })(performance.now());
-  });
-}
+  async function fastScrollToBottom(durationMs) {
+    return new Promise(resolve => {
+      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      const full = Math.max(
+        document.body.scrollHeight, document.documentElement.scrollHeight,
+        document.body.offsetHeight, document.documentElement.offsetHeight,
+        document.body.clientHeight, document.documentElement.clientHeight
+      );
+      const maxY = full - (window.innerHeight || document.documentElement.clientHeight || 0);
+      const dist = Math.max(0, maxY - startY);
+      if (dist <= 2) return resolve();
 
+      const startT = performance.now();
+      (function frame(now) {
+        const t = Math.min(1, (now - startT) / durationMs);
+        const eased = easeInOutQuad(t); // gentle, slower burst
+        const y = startY + dist * eased;
+        window.scrollTo(0, y);
+        checkAndSendDepth();
+        if (t < 1) requestAnimationFrame(frame);
+        else resolve();
+      })(performance.now());
+    });
+  }
 
-  function clickNowThenScrollThenNavigate(link) {
+  // Click → navigate (no extra post-click scroll; we already scrolled)
+  function clickNowThenNavigate(link) {
     const dest = (link.getAttribute('href') || link.href || '').trim();
     if (!dest) return;
 
@@ -491,22 +477,14 @@ async function fastScrollToBottom(durationMs) {
     };
     document.addEventListener('click', blocker, true);
 
-    // Click now (let handlers/analytics fire)
+    // Click now (let handlers/analytics fire), then navigate immediately
     try {
       link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
     } catch { try { link.click(); } catch {} }
 
-    // Short wander/hover to feel natural, then scroll + navigate
-    (async () => {
-      // ~5s slow scroll, then quick sweep to bottom (~0.7–1.0s)
-      await slowHumanScroll(SLOW_AFTER_CLICK_MS);
-      await fastScrollToBottom(FAST_TO_BOTTOM_MS);
-
-      // Reduced post-click wait by ~10s overall vs prior (no extra idle delay here)
-      beforeNavigateIncrement();
-      try { window.location.assign(dest); }
-      catch { window.location.href = dest; }
-    })();
+    beforeNavigateIncrement();
+    try { window.location.assign(dest); }
+    catch { window.location.href = dest; }
   }
 
   function clickWithCursorFlow(link) {
@@ -515,30 +493,43 @@ async function fastScrollToBottom(durationMs) {
     const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
     const cursor = createFakeCursor();
     moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
-    // Slightly shorter wander to save time
-    const wanderSteps = randInt(1, 3);
-    cursorWander(cursor, wanderSteps, randInt(220, 320), function () {
-      moveCursorTo(cursor, targetX, targetY);
-      setTimeout(function () {
-        console.log('[HumanScroll] Click now; short post-click scroll, then navigate →', link.href);
-        clickNowThenScrollThenNavigate(link);
-        removeCursor(cursor);
-      }, randInt(200, 400));
-    });
+    // Short wander for natural feel (but quick)
+    const steps = randInt(1, 3);
+    (function wander(i){
+      if (i >= steps) {
+        moveCursorTo(cursor, targetX, targetY);
+        setTimeout(function () {
+          console.log('[HumanScroll] Click now → navigate (no extra post-click scroll) →', link.href);
+          clickNowThenNavigate(link);
+          removeCursor(cursor);
+        }, randInt(200, 400));
+        return;
+      }
+      moveCursorTo(cursor, randInt(30, Math.max(60, window.innerWidth - 30)),
+                          randInt(30, Math.max(60, window.innerHeight - 30)));
+      setTimeout(() => wander(i+1), randInt(200, 320));
+    })(0);
   }
 
   function scrollToLinkThenClick(link) {
     try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     catch (e) { link.scrollIntoView(true); }
     setTimeout(function () { checkAndSendDepth(); }, 200);
-    const aimWait = randInt(600, 1200); // quicker aim
+    const aimWait = randInt(600, 1200);
     setTimeout(function () {
-      if (!isDisplayed(link)) {
+      // Display/viewport guards
+      const style = window.getComputedStyle(link);
+      const visible = !!(link.offsetWidth || link.offsetHeight || link.getClientRects().length);
+      if (!visible || style.visibility === 'hidden' || style.display === 'none') {
         const alt = pickRandomLink();
         if (alt && alt !== link) return scrollToLinkThenClick(alt);
         return;
       }
-      if (!inViewport(link)) {
+      const r = link.getBoundingClientRect();
+      const inView = r.bottom > 0 && r.right > 0 &&
+                     r.left < (window.innerWidth || document.documentElement.clientWidth) &&
+                     r.top  < (window.innerHeight || document.documentElement.clientHeight);
+      if (!inView) {
         try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
         return setTimeout(function () { clickWithCursorFlow(link); }, randInt(250, 500));
       }
@@ -553,28 +544,26 @@ async function fastScrollToBottom(durationMs) {
     scrollToLinkThenClick(link);
   }
 
+  // ===== Kickoff sequence after the initial START_DELAY_MS =====
   setTimeout(async function () {
-  checkAndSendDepth();
-  if (getNavCount() >= 13) { 
-    tryCloseTab('limit reached before scrolling'); 
-    return; 
-  }
+    checkAndSendDepth();
+    if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
 
-  // ① Smooth scroll ~900px over ~8–10s
-  await animateScrollByPx(900, randInt(8000, 10000));
+    // ① Touch-like flick: ~900px with inertia (fast start, decelerate)
+    await swipeScroll(randInt(820, 980), randInt(450, 850));
 
-  // ② Pause 5s
-  await new Promise(r => setTimeout(r, 5000));
+    // ② Micro “align to read” nudges
+    await microReadNudge();
 
-  // ③ Slower “burst” to bottom (2–3s)
-  await fastScrollToBottom(randInt(2000, 3000));
+    // ③ Pause to read (5s)
+    await sleep(5000);
 
-  // ④ Continue with click/navigation
-  tryLinkFlow();
+    // ④ Gentle burst to bottom (slower; 2.2–3.0s)
+    await fastScrollToBottom(randInt(2200, 3000));
 
-}, START_DELAY_MS);
+    // ⑤ Proceed to click / navigate (no extra post-click scroll)
+    tryLinkFlow();
 
-
+  }, START_DELAY_MS);
 
 })();
-
