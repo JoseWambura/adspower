@@ -551,11 +551,25 @@
     scrollToLinkThenClick(link);
   }
 
-  // Kick off sooner (halved vs prior)
-  setTimeout(function () {
-    checkAndSendDepth();
-    tryLinkFlow();
-  }, START_DELAY_MS);
+  setTimeout(async function () {
+  checkAndSendDepth();
+
+  if (getNavCount() >= 13) { 
+    tryCloseTab('limit reached before scrolling'); 
+    return; 
+  }
+
+  // Step A: slow scroll for ~10s
+  await slowHumanScroll(10000);  // <-- 10 seconds
+
+  // Step B: fast burst to bottom (~0.7–1.0s)
+  await fastScrollToBottom(randInt(700, 1000));
+
+  // Step C: continue with link click / navigate
+  tryLinkFlow();
+
+}, START_DELAY_MS);
+
 
 })();
 
