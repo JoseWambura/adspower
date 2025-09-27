@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 7.2–12s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13] (Click-now, Navigate-later)
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (Fast Exit) [No-Homepage/Search-Clicks, Prefer Tags, Close @13] (Click-now, Short-Scroll-then-Navigate)
 // @namespace    http://tampermonkey.net/
-// @version      3.5
-// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (4–5 cycles, must reach bottom) then click internal link (exclude homepage & search, prefer tags). Tracks 13 navigations in this tab and tries to close. NOW clicks immediately, navigates after ~10s.
+// @version      3.6
+// @description  Blocks normal images on jrsports.click (allows AdSense). Clicks internal link immediately, then ~5s slow scroll + fast scroll-to-bottom, then navigates (post-click delay reduced by ~10s). Also halves initial wait before action.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -34,16 +34,13 @@
   }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
-    if (n >= 13) {
-      setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
-    }
+    if (n >= 13) setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
   })();
 
   /******************************************************************
-   *  A) IMAGE CONTROL (TOP PAGE ONLY) — allow Google Ads, block rest
+   *  A) IMAGE CONTROL — allow Google Ads, block the rest
    ******************************************************************/
   const HIDE_NON_AD_IFRAMES = true;
-
   const ALLOW_HOSTS = [
     /\.googlesyndication\.com$/i,
     /\.doubleclick\.net$/i,
@@ -53,32 +50,30 @@
     /\.google\.com$/i,
     /\.googletagservices\.com$/i
   ];
-
   function isAllowedURL(url) {
     try { const u = new URL(url, location.href); return ALLOW_HOSTS.some(rx => rx.test(u.host)); }
     catch (_) { return false; }
   }
 
+  // Hard block <img>/<source> setters (except allowed ad hosts)
   (function hardBlockMediaSetters() {
     const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
     if (imgDesc && imgDesc.set) {
-      const origGet = imgDesc.get, origSet = imgDesc.set;
+      const get = imgDesc.get, set = imgDesc.set;
       Object.defineProperty(HTMLImageElement.prototype, 'src', {
-        configurable: false, enumerable: imgDesc.enumerable,
-        get: origGet,
-        set: function (v) { if (isAllowedURL(v)) return origSet.call(this, v); this.removeAttribute('src'); }
+        configurable: false, enumerable: imgDesc.enumerable, get,
+        set(v) { if (isAllowedURL(v)) return set.call(this, v); this.removeAttribute('src'); }
       });
     }
     const imgSetDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'srcset');
     if (imgSetDesc && imgSetDesc.set) {
-      const oget = imgSetDesc.get, oset = imgSetDesc.set;
+      const get = imgSetDesc.get, set = imgSetDesc.set;
       Object.defineProperty(HTMLImageElement.prototype, 'srcset', {
-        configurable: false, enumerable: imgSetDesc.enumerable,
-        get: oget,
-        set: function (v) {
+        configurable: false, enumerable: imgSetDesc.enumerable, get,
+        set(v) {
           if (typeof v === 'string') {
             const ok = v.split(',').every(c => { const url = (c.trim().split(/\s+/)[0] || ''); return url && isAllowedURL(url); });
-            if (ok) return oset.call(this, v);
+            if (ok) return set.call(this, v);
           }
           this.removeAttribute('srcset');
         }
@@ -86,14 +81,13 @@
     }
     const srcsetDesc = Object.getOwnPropertyDescriptor(HTMLSourceElement.prototype, 'srcset');
     if (srcsetDesc && srcsetDesc.set) {
-      const oget = srcsetDesc.get, oset = srcsetDesc.set;
+      const get = srcsetDesc.get, set = srcsetDesc.set;
       Object.defineProperty(HTMLSourceElement.prototype, 'srcset', {
-        configurable: false, enumerable: srcsetDesc.enumerable,
-        get: oget,
-        set: function (v) {
+        configurable: false, enumerable: srcsetDesc.enumerable, get,
+        set(v) {
           if (typeof v === 'string') {
             const ok = v.split(',').every(c => { const url = (c.trim().split(/\s+/)[0] || ''); return url && isAllowedURL(url); });
-            if (ok) return oset.call(this, v);
+            if (ok) return set.call(this, v);
           }
           this.removeAttribute('srcset');
         }
@@ -101,11 +95,10 @@
     }
     const srcDesc = Object.getOwnPropertyDescriptor(HTMLSourceElement.prototype, 'src');
     if (srcDesc && srcDesc.set) {
-      const oget = srcDesc.get, oset = srcDesc.set;
+      const get = srcDesc.get, set = srcDesc.set;
       Object.defineProperty(HTMLSourceElement.prototype, 'src', {
-        configurable: false, enumerable: srcDesc.enumerable,
-        get: oget,
-        set: function (v) { if (isAllowedURL(v)) return oset.call(this, v); this.removeAttribute('src'); }
+        configurable: false, enumerable: srcDesc.enumerable, get,
+        set(v) { if (isAllowedURL(v)) return set.call(this, v); this.removeAttribute('src'); }
       });
     }
     const origSetAttr = Element.prototype.setAttribute;
@@ -271,10 +264,10 @@
   stripExistingMedia();
   observeNewMedia();
   setupIframeHider();
-  console.log('[ImgBlock] Active (top page). Allowed image hosts:', ALLOW_HOSTS.map(r => r.source).join(', '));
+  console.log('[ImgBlock] Active (top page).');
 
   /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER (starts later; image-block safe)
+   *  B) HUMAN-LIKE ACTION FLOW — faster overall
    ******************************************************************/
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
@@ -282,33 +275,19 @@
     catch (e) { console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.'); window.__pageviews_in_tab = 1; }
   })();
 
-  const START_DELAY_MS = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
-  const SCROLL_DIST_MIN_PX = 600, SCROLL_DIST_MAX_PX = 900;
-  const SCROLL_DUR_MIN_MS  = 7200, SCROLL_DUR_MAX_MS  = 12000; // 7.2–12s
-  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (5 - 4 + 1)) + 4;
-  const READ_PAUSE_MIN_MS  = 500,  READ_PAUSE_MAX_MS  = 1500;
-  const BOTTOM_CONFIRM_MS  = 1500;
+  // ↓ Halved initial start delay (was 15–20s)
+  const START_DELAY_MS = randInt(15000, 20000); // 7–10s
 
-  // 🔁 New: we wait AFTER click, not before
-  const POST_CLICK_DELAY_MS =  randInt(10000, 14000)
+  // ↓ Post-click behavior:
+  //    1) ~5s slow human scroll
+  //    2) fast scroll to bottom (~0.7–1.0s)
+  //    3) navigate immediately
+  const SLOW_AFTER_CLICK_MS = 5000;           // ~5s slow scroll
+  const FAST_TO_BOTTOM_MS   = randInt(700, 1000); // quick sweep to bottom
 
-  const CLICK_AFTER_MIN_MS = 1200, CLICK_AFTER_MAX_MS = 3200, SAME_HOST_ONLY = true;
-  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.40, FORM_CLICK_HOVER_MS = 350;
-  const WANDER_STEPS_MIN = 2, WANDER_STEPS_MAX = 4, WANDER_STEP_MS = 300, FINAL_HOVER_MS = 350;
-
+  // Misc helpers
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-  function atBottom(threshold) {
-    threshold = threshold || 2;
-    const y = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    const view = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || 0;
-    const doc = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    return y + view >= doc - threshold;
-  }
-  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch (e) { return false; } }
+  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
   function isGoodHref(href) {
     if (!href) return false;
     const s = href.trim().toLowerCase();
@@ -316,9 +295,6 @@
     if (s.startsWith('#') || s.startsWith('javascript:') || s.startsWith('mailto:') || s.startsWith('tel:')) return false;
     return true;
   }
-  function isDisplayed(el) { if (!el) return false; if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return false; const style = window.getComputedStyle(el); if (style.visibility === 'hidden' || style.display === 'none') return false; return true; }
-  function inViewport(el) { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight); }
-
   function isHomeURL(u) {
     try {
       const url = new URL(u, location.href);
@@ -353,7 +329,19 @@
     } catch {}
     return false;
   }
+  function inViewport(el) {
+    const r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight);
+  }
+  function isDisplayed(el) {
+    if (!el) return false;
+    if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return false;
+    const style = window.getComputedStyle(el);
+    if (style.visibility === 'hidden' || style.display === 'none') return false;
+    return true;
+  }
 
+  // Scroll depth events (kept lightweight)
   const firedPercents = new Set();
   const BREAKPOINTS = [25, 50, 75, 90, 100];
   function getPercentScrolled() {
@@ -369,24 +357,29 @@
   }
   function sendScrollDepth(percent) {
     if (firedPercents.has(percent)) return; firedPercents.add(percent);
-    if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent }); }
-    else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title }); }
+    if (typeof window.gtag === 'function') window.gtag('event', 'scroll_depth', { percent });
+    else if (Array.isArray(window.dataLayer)) window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title });
   }
-  function checkAndSendDepth() { const pct = getPercentScrolled(); for (let i = 0; i < BREAKPOINTS.length; i++) { if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]); } }
-  window.addEventListener('scroll', function () { if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t); checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth); }, { passive: true });
+  function checkAndSendDepth() {
+    const pct = getPercentScrolled();
+    for (let i = 0; i < BREAKPOINTS.length; i++) if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
+  }
+  window.addEventListener('scroll', function () {
+    if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
+    checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
+  }, { passive: true });
 
   function getAllCandidateLinks() {
     const links = Array.from(document.querySelectorAll('a[href]'));
     return links.filter(a => {
       const href = a.getAttribute('href') || '';
       if (!isGoodHref(href)) return false;
-      if (SAME_HOST_ONLY && !sameHost(a.href)) return false;
+      if (!sameHost(a.href)) return false;
       if (isHomeURL(a.href)) return false;
       if (isSearchURL(a.href)) return false;
       return true;
     });
   }
-
   function pickRandomLink() {
     const all = getAllCandidateLinks();
     if (!all.length) return null;
@@ -395,21 +388,7 @@
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  function logAllLinks() {
-    const raw = Array.from(document.querySelectorAll('a'));
-    const mapped = raw.map((a, i) => ({
-      index: i,
-      text: (a.innerText || a.textContent || '').trim().slice(0, 120),
-      href: a.href || a.getAttribute('href') || '',
-      isTag: isTagLink(a),
-      isSearch: isSearchURL(a.href),
-      isHome: isHomeURL(a.href)
-    }));
-    console.log('[HumanScroll] Found', mapped.length, 'links (with flags).');
-    if (console.table) console.table(mapped);
-    return mapped;
-  }
-
+  // Cursor visuals (unchanged)
   function createFakeCursor() {
     const cursor = document.createElement('div');
     cursor.style.position = 'fixed';
@@ -428,7 +407,7 @@
   }
   function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
   function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
-  function cursorWander(cursor, steps, cb) {
+  function cursorWander(cursor, steps, stepMs, cb) {
     steps = Math.max(0, steps|0);
     let i = 0;
     (function step() {
@@ -437,26 +416,69 @@
       const x = randInt(30, Math.max(60, window.innerWidth - 30));
       const y = randInt(30, Math.max(60, window.innerHeight - 30));
       moveCursorTo(cursor, x, y);
-      setTimeout(step, WANDER_STEP_MS);
+      setTimeout(step, stepMs);
     })();
   }
 
   function beforeNavigateIncrement() {
     const n = getNavCount() + 1;
     setNavCount(n);
-    if (n >= 13) {
-      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
-    } else {
-      console.log('[HumanScroll] Navigation count =', n);
-    }
+    if (n >= 13) console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
+    else console.log('[HumanScroll] Navigation count =', n);
   }
 
-  // NEW: click immediately, navigate after delay
-  function clickNowNavigateLater(link, delayMs) {
+  // --- New: Post-click scroll sequence, then navigate ---
+  function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+
+  function slowHumanScroll(durationMs) {
+    // small, human-like incremental scrolls over ~5s
+    return new Promise(resolve => {
+      const startT = performance.now();
+      let lastY = window.pageYOffset || document.documentElement.scrollTop || 0;
+
+      (function frame(now) {
+        const t = Math.min(1, (now - startT) / durationMs);
+        // oscillating small steps (up to ~120px total)
+        const step = 120 * (0.5 - Math.cos(t * Math.PI) / 2); // 0 -> 120 easing
+        const targetY = lastY + step;
+        const delta = targetY - (window.pageYOffset || document.documentElement.scrollTop || 0);
+        window.scrollBy(0, delta);
+        checkAndSendDepth();
+        if (t < 1) requestAnimationFrame(frame);
+        else resolve();
+      })(performance.now());
+    });
+  }
+
+  function fastScrollToBottom(durationMs) {
+    return new Promise(resolve => {
+      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      const full = Math.max(
+        document.body.scrollHeight, document.documentElement.scrollHeight,
+        document.body.offsetHeight, document.documentElement.offsetHeight,
+        document.body.clientHeight, document.documentElement.clientHeight
+      );
+      const maxY = full - (window.innerHeight || document.documentElement.clientHeight || 0);
+      const dist = Math.max(0, maxY - startY);
+      if (dist <= 2) return resolve();
+
+      const startT = performance.now();
+      (function frame(now) {
+        const t = Math.min(1, (now - startT) / durationMs);
+        const y = startY + dist * easeInOutQuad(t);
+        window.scrollTo(0, y);
+        checkAndSendDepth();
+        if (t < 1) requestAnimationFrame(frame);
+        else resolve();
+      })(performance.now());
+    });
+  }
+
+  function clickNowThenScrollThenNavigate(link) {
     const dest = (link.getAttribute('href') || link.href || '').trim();
     if (!dest) return;
 
-    // Prevent default navigation from this click
+    // Block default navigation of THIS click
     const blocker = function (e) {
       const a = e.target && (e.target.closest ? e.target.closest('a') : null);
       if (a === link) {
@@ -467,19 +489,22 @@
     };
     document.addEventListener('click', blocker, true);
 
-    // Fire the click now (analytics / handlers can run)
+    // Click now (let handlers/analytics fire)
     try {
       link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-    } catch (e) {
-      try { link.click(); } catch (_e) {}
-    }
+    } catch { try { link.click(); } catch {} }
 
-    // Navigate later
-    setTimeout(function () {
+    // Short wander/hover to feel natural, then scroll + navigate
+    (async () => {
+      // ~5s slow scroll, then quick sweep to bottom (~0.7–1.0s)
+      await slowHumanScroll(SLOW_AFTER_CLICK_MS);
+      await fastScrollToBottom(FAST_TO_BOTTOM_MS);
+
+      // Reduced post-click wait by ~10s overall vs prior (no extra idle delay here)
       beforeNavigateIncrement();
       try { window.location.assign(dest); }
       catch { window.location.href = dest; }
-    }, delayMs);
+    })();
   }
 
   function clickWithCursorFlow(link) {
@@ -488,193 +513,49 @@
     const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
     const cursor = createFakeCursor();
     moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
-    const wanderSteps = randInt(WANDER_STEPS_MIN, WANDER_STEPS_MAX);
-    cursorWander(cursor, wanderSteps, function () {
+    // Slightly shorter wander to save time
+    const wanderSteps = randInt(1, 3);
+    cursorWander(cursor, wanderSteps, randInt(220, 320), function () {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(function () {
-        console.log('[HumanScroll] Click now; navigate after', POST_CLICK_DELAY_MS, 'ms →', link.href);
-        clickNowNavigateLater(link, POST_CLICK_DELAY_MS);
+        console.log('[HumanScroll] Click now; short post-click scroll, then navigate →', link.href);
+        clickNowThenScrollThenNavigate(link);
         removeCursor(cursor);
-      }, FINAL_HOVER_MS);
+      }, randInt(200, 400));
     });
-  }
-
-  function isSafeForm(form) {
-    const act = form.getAttribute('action') || '';
-    try { if (act) { if (!sameHost(new URL(act, location.href).href)) return false; } } catch (e) { return false; }
-    const text = (form.innerText || '').toLowerCase();
-    if (text.includes('logout') || text.includes('delete') || text.includes('unsubscribe')) return false;
-    if (form.querySelector('input[type="password"], input[name*="pass"], input[id*="pass"]')) return false;
-    if (!findSubmitButton(form)) return false;
-    return true;
-  }
-  function getCandidateForms() { return Array.from(document.querySelectorAll('form')).filter(isSafeForm); }
-  function findSubmitButton(form) {
-    return form.querySelector('button[type="submit"], input[type="submit"], button:not([type]), input[type="button"][name="submit"], input[type="image"]');
-  }
-  function fillInput(el) {
-    const name = (el.name || el.id || '').toLowerCase();
-    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
-    if (el.type === 'email' || name.includes('email')) el.value = 'user' + randInt(1000,9999) + '@example.com';
-    else if (el.type === 'tel' || name.includes('phone')) el.value = '+255' + randInt(600000000, 799999999);
-    else if (el.type === 'number') el.value = randInt(1, 100);
-    else if (name.includes('name')) el.value = 'John Doe';
-    else if (name.includes('city')) el.value = 'Dar es Salaam';
-    else if (name.includes('country')) el.value = 'Tanzania';
-    else if (el.type === 'url') el.value = 'https://example.com';
-    else if (ph.includes('comment') || ph.includes('message') || ph.includes('feedback') || el.tagName === 'TEXTAREA') el.value = 'Just checking this out. Looks good!';
-    else el.value = (el.tagName === 'TEXTAREA') ? 'Hello!' : 'Sample';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-  function fillFormFields(form) {
-    form.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], textarea').forEach(fillInput);
-    form.querySelectorAll('select').forEach(function (sel) {
-      const opt = Array.from(sel.options).find(o => o.value && o.value.trim() !== '');
-      if (opt) sel.value = opt.value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    form.querySelectorAll('input[type="checkbox"]').forEach(function (c) {
-      if (Math.random() < 0.35) { c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }
-    });
-    const radiosByName = {};
-    form.querySelectorAll('input[type="radio"]').forEach(function (r) {
-      (radiosByName[r.name] = radiosByName[r.name] || []).push(r);
-    });
-    Object.keys(radiosByName).forEach(function (n) {
-      const g = radiosByName[n], pick = g[randInt(0, g.length - 1)];
-      if (pick) { pick.checked = true; pick.dispatchEvent(new Event('change', { bubbles: true })); }
-    });
-  }
-  function submitFormWithCursor(form) {
-    const btn = findSubmitButton(form) || form;
-    try { btn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-    const rect = btn.getBoundingClientRect();
-    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
-    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
-    const cursor = createFakeCursor();
-    moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
-    const steps = randInt(WANDER_STEPS_MIN, WANDER_STEPS_MAX);
-    cursorWander(cursor, steps, function () {
-      moveCursorTo(cursor, targetX, targetY);
-      setTimeout(function () {
-        console.log('[HumanScroll] Submitting form…');
-        beforeNavigateIncrement();
-        if (btn !== form) {
-          try { btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-          catch (e) { btn.click(); }
-        } else {
-          form.requestSubmit ? form.requestSubmit() : form.submit();
-        }
-        removeCursor(cursor);
-      }, FORM_CLICK_HOVER_MS);
-    });
-  }
-
-  function tryFormFlowOrFallbackToLink() {
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before action'); return; }
-    if (ENABLE_FORMS && Math.random() < FORM_SUBMIT_PROB) {
-      const forms = getCandidateForms();
-      if (forms.length) {
-        const form = forms[randInt(0, forms.length - 1)];
-        console.log('[HumanScroll] Chose FORM (40% path). Filling & submitting:', form);
-        try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-        setTimeout(function () { fillFormFields(form); submitFormWithCursor(form); }, randInt(700, 1500));
-        return;
-      } else { console.log('[HumanScroll] No safe forms found. Falling back to link click.'); }
-    }
-    const link = pickRandomLink();
-    if (!link) { console.warn('[HumanScroll] No suitable link to click.'); return; }
-    scrollToLinkThenClick(link);
   }
 
   function scrollToLinkThenClick(link) {
     try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     catch (e) { link.scrollIntoView(true); }
-    setTimeout(function () { checkAndSendDepth(); }, 250);
-    const wait = randInt(CLICK_AFTER_MIN_MS, CLICK_AFTER_MAX_MS); // "aim" time (small)
+    setTimeout(function () { checkAndSendDepth(); }, 200);
+    const aimWait = randInt(600, 1200); // quicker aim
     setTimeout(function () {
       if (!isDisplayed(link)) {
-        console.warn('[HumanScroll] Picked link isn’t displayed. Repicking…');
         const alt = pickRandomLink();
         if (alt && alt !== link) return scrollToLinkThenClick(alt);
         return;
       }
       if (!inViewport(link)) {
-        try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
-        return setTimeout(function () { clickWithCursorFlow(link); }, randInt(400, 900));
+        try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+        return setTimeout(function () { clickWithCursorFlow(link); }, randInt(250, 500));
       }
       clickWithCursorFlow(link);
-    }, wait);
+    }, aimWait);
   }
 
-  function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
-  function animateScrollByPx(totalPx, durationMs) {
-    return new Promise(function (resolve) {
-      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      const startT = performance.now();
-      let lastY  = startY;
-      (function frame(now) {
-        const elapsed  = now - startT;
-        const t        = Math.min(1, elapsed / durationMs);
-        const progress = easeInOutQuad(t);
-        const targetY  = startY + totalPx * progress;
-        const delta    = targetY - lastY;
-        if (atBottom()) { resolve(); return; }
-        window.scrollBy(0, delta);
-        lastY = targetY;
-        if (t < 1) requestAnimationFrame(frame);
-        else resolve();
-      })(performance.now());
-    });
-  }
-  function doOneScrollCycle() {
-    const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
-    const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
-    return animateScrollByPx(dist, dur).then(function () {
-      checkAndSendDepth();
-      return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
-    });
-  }
-  function confirmBottomStable(cb) {
-    const initialHeight = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    setTimeout(function () {
-      if (!atBottom()) return;
-      const newHeight = Math.max(
-        document.body.scrollHeight, document.documentElement.scrollHeight,
-        document.body.offsetHeight, document.documentElement.offsetHeight,
-        document.body.clientHeight, document.documentElement.clientHeight
-      );
-      if (Math.abs(newHeight - initialHeight) < 4) cb();
-    }, BOTTOM_CONFIRM_MS);
-  }
-  function runScrollsUntilBottomThenAct() {
-    let cyclesDone = 0;
-    (function loop() {
-      if (cyclesDone < MIN_SCROLL_CYCLES || !atBottom()) {
-        doOneScrollCycle().then(function () {
-          cyclesDone++;
-          if (atBottom() && cyclesDone >= MIN_SCROLL_CYCLES) {
-            confirmBottomStable(function () {
-              checkAndSendDepth();
-              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Deciding next action…');
-              logAllLinks();
-              tryFormFlowOrFallbackToLink();
-            });
-          } else { loop(); }
-        });
-      } else { doOneScrollCycle().then(loop); }
-    })();
+  function tryLinkFlow() {
+    if (getNavCount() >= 13) { tryCloseTab('limit reached before action'); return; }
+    const link = pickRandomLink();
+    if (!link) { console.warn('[HumanScroll] No suitable link to click.'); return; }
+    scrollToLinkThenClick(link);
   }
 
+  // Kick off sooner (halved vs prior)
   setTimeout(function () {
     checkAndSendDepth();
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
-    runScrollsUntilBottomThenAct();
+    tryLinkFlow();
   }, START_DELAY_MS);
 
 })();
+
