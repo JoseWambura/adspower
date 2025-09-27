@@ -289,7 +289,7 @@
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;   // ↑ longer steps to reach bottom sooner
   const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 5000;   // ↓ faster per-cycle (was 7200–12000)
   const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // ↓ 3–4 cycles (was 4–5)
-  const READ_PAUSE_MIN_MS  = 200,  READ_PAUSE_MAX_MS  = 600;    // ↓ shorter read pauses
+  const READ_PAUSE_MIN_MS  = 4000,  READ_PAUSE_MAX_MS  = 5000;    // ↓ shorter read pauses
   const BOTTOM_CONFIRM_MS  = 900;                                // ↓ quicker confirm
   const PRE_CLICK_WAIT_MS  = 4000;                               // ↓ shorter pre-click wait (~4s)
 
