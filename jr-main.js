@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 6–10s) [No-Homepage-Clicks]
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 7.2–12s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
 // @namespace    http://tampermonkey.net/
-// @version      3.1
-// @description  Blocks normal images on jrsports.click (allows AdSense) + human-like scrolling (4–5 cycles, must reach bottom) then 40% safe form submit or random link (fake cursor), excluding homepage from clicks; GA4/GTM scroll depth + per-tab page-load counter.
+// @version      3.4
+// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (4–5 cycles, must reach bottom) then click internal link (exclude homepage & search, prefer tags). Tracks 13 navigations in this tab and tries to close.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -11,6 +11,33 @@
 
 (function () {
   'use strict';
+
+  /******************************************************************
+   * 0) Navigation counter & auto-close after 13
+   ******************************************************************/
+  const NAV_KEY = '__hs_nav_count';
+  function getNavCount() {
+    try { return parseInt(sessionStorage.getItem(NAV_KEY) || '0', 10) || 0; } catch { return 0; }
+  }
+  function setNavCount(n) {
+    try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {}
+  }
+  function tryCloseTab(reason) {
+    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
+    window.close();
+    setTimeout(() => {
+      try { window.open('', '_self'); window.close(); } catch {}
+    }, 150);
+    setTimeout(() => {
+      try { location.replace('about:blank'); } catch {}
+    }, 350);
+  }
+  (function maybeCloseOnLoad() {
+    const n = getNavCount();
+    if (n >= 10) {
+      setTimeout(() => tryCloseTab('limit reached on load (>=10)'), 1200);
+    }
+  })();
 
   /******************************************************************
    *  A) IMAGE CONTROL (TOP PAGE ONLY) — allow Google Ads, block rest
@@ -255,15 +282,16 @@
     catch (e) { console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.'); window.__pageviews_in_tab = 1; }
   })();
 
-  const START_DELAY_MS = Math.floor(Math.random() * (13000 - 10000 + 1)) + 10000; // 10–13s
+  const START_DELAY_MS = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
   const SCROLL_DIST_MIN_PX = 600, SCROLL_DIST_MAX_PX = 900;
-  const SCROLL_DUR_MIN_MS  = 6000, SCROLL_DUR_MAX_MS  = 10000;
+  const SCROLL_DUR_MIN_MS  = 7200, SCROLL_DUR_MAX_MS  = 12000; // Increased by 20% from 6000–10000
   const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (5 - 4 + 1)) + 4;
   const READ_PAUSE_MIN_MS  = 500,  READ_PAUSE_MAX_MS  = 1500;
   const BOTTOM_CONFIRM_MS  = 1500;
+  const PRE_CLICK_WAIT_MS  = 5000; // 10s wait before clicking link
 
   const CLICK_AFTER_MIN_MS = 1200, CLICK_AFTER_MAX_MS = 3200, SAME_HOST_ONLY = true;
-  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.40, FORM_CLICK_HOVER_MS = 350;
+  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.60, FORM_CLICK_HOVER_MS = 350;
   const WANDER_STEPS_MIN = 2, WANDER_STEPS_MAX = 4, WANDER_STEP_MS = 300, FINAL_HOVER_MS = 350;
 
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -289,17 +317,39 @@
   function isDisplayed(el) { if (!el) return false; if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return false; const style = window.getComputedStyle(el); if (style.visibility === 'hidden' || style.display === 'none') return false; return true; }
   function inViewport(el) { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight); }
 
-  // NEW: helper to detect homepage URLs on same origin (exclude from clicks)
   function isHomeURL(u) {
     try {
       const url = new URL(u, location.href);
       if (url.origin !== location.origin) return false;
-      // treat any path resolving to "/" as homepage (regardless of search/hash)
       const normalized = url.pathname.replace(/\/+$/, '/');
       return normalized === '/';
-    } catch (e) {
+    } catch { return false; }
+  }
+  function isSearchURL(u) {
+    try {
+      const url = new URL(u, location.href);
+      if (url.origin !== location.origin) return false;
+      if (url.searchParams.has('s')) return true;
+      const p = url.pathname.toLowerCase();
+      if (p === '/search' || p.startsWith('/search/')) return true;
+      if (p.includes('/?s=')) return true;
+      if (p.includes('search')) return true;
+      if ((url.search || '').toLowerCase().includes('search')) return true;
       return false;
-    }
+    } catch { return false; }
+  }
+  function isTagLink(a) {
+    try {
+      if (!a) return false;
+      if (a.rel && String(a.rel).toLowerCase().split(/\s+/).includes('tag')) return true;
+      if (a.className && /\btag\b/i.test(a.className)) return true;
+      const href = a.getAttribute('href') || a.href || '';
+      const url = new URL(href, location.href);
+      if (url.origin === location.origin && /\/tag\/[^/]/i.test(url.pathname)) return true;
+      const txt = (a.innerText || a.textContent || '').trim().toLowerCase();
+      if (txt && (txt.startsWith('#') || txt.includes('tag'))) return true;
+    } catch {}
+    return false;
   }
 
   const firedPercents = new Set();
@@ -317,9 +367,8 @@
   }
   function sendScrollDepth(percent) {
     if (firedPercents.has(percent)) return; firedPercents.add(percent);
-    if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent: percent }); console.log('[GA4] gtag scroll_depth:', percent); }
-    else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent: percent, page_location: location.href, page_title: document.title }); console.log('[GTM] dataLayer scroll_depth:', percent); }
-    else { console.log('[No GA] scroll_depth (not sent):', percent); }
+    if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent }); }
+    else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title }); }
   }
   function checkAndSendDepth() { const pct = getPercentScrolled(); for (let i = 0; i < BREAKPOINTS.length; i++) { if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]); } }
   window.addEventListener('scroll', function () { if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t); checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth); }, { passive: true });
@@ -329,18 +378,32 @@
     return links.filter(a => {
       const href = a.getAttribute('href') || '';
       if (!isGoodHref(href)) return false;
-      // same-host filter
       if (SAME_HOST_ONLY && !sameHost(a.href)) return false;
-      // EXCLUDE homepage links
       if (isHomeURL(a.href)) return false;
+      if (isSearchURL(a.href)) return false;
       return true;
     });
   }
 
+  function pickRandomLink() {
+    const all = getAllCandidateLinks();
+    if (!all.length) return null;
+    const tags = all.filter(isTagLink);
+    const pool = tags.length ? tags : all;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   function logAllLinks() {
     const raw = Array.from(document.querySelectorAll('a'));
-    const mapped = raw.map((a, i) => ({ index: i, text: (a.innerText || a.textContent || '').trim().slice(0, 120), href: a.href || a.getAttribute('href') || '' }));
-    console.log('[HumanScroll] Found', mapped.length, 'links.');
+    const mapped = raw.map((a, i) => ({
+      index: i,
+      text: (a.innerText || a.textContent || '').trim().slice(0, 120),
+      href: a.href || a.getAttribute('href') || '',
+      isTag: isTagLink(a),
+      isSearch: isSearchURL(a.href),
+      isHome: isHomeURL(a.href)
+    }));
+    console.log('[HumanScroll] Found', mapped.length, 'links (with flags).');
     if (console.table) console.table(mapped);
     return mapped;
   }
@@ -375,6 +438,17 @@
       setTimeout(step, WANDER_STEP_MS);
     })();
   }
+
+  function beforeNavigateIncrement() {
+    const n = getNavCount() + 1;
+    setNavCount(n);
+    if (n >= 13) {
+      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
+    } else {
+      console.log('[HumanScroll] Navigation count =', n);
+    }
+  }
+
   function clickWithCursorFlow(link) {
     const rect = link.getBoundingClientRect();
     const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
@@ -385,10 +459,14 @@
     cursorWander(cursor, wanderSteps, function () {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(function () {
-        console.log('[HumanScroll] Clicking:', link.href);
-        try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-        catch (e) { link.click(); }
-        removeCursor(cursor);
+        console.log('[HumanScroll] Waiting 10s before clicking:', link.href);
+        setTimeout(function () {
+          console.log('[HumanScroll] Clicking:', link.href);
+          beforeNavigateIncrement();
+          try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
+          catch (e) { link.click(); }
+          removeCursor(cursor);
+        }, PRE_CLICK_WAIT_MS);
       }, FINAL_HOVER_MS);
     });
   }
@@ -452,7 +530,8 @@
     cursorWander(cursor, steps, function () {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(function () {
-        console.log('[HumanScroll] Submitting form...');
+        console.log('[HumanScroll] Submitting form…');
+        beforeNavigateIncrement();
         if (btn !== form) {
           try { btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
           catch (e) { btn.click(); }
@@ -463,7 +542,9 @@
       }, FORM_CLICK_HOVER_MS);
     });
   }
+
   function tryFormFlowOrFallbackToLink() {
+    if (getNavCount() >= 13) { tryCloseTab('limit reached before action'); return; }
     if (ENABLE_FORMS && Math.random() < FORM_SUBMIT_PROB) {
       const forms = getCandidateForms();
       if (forms.length) {
@@ -479,11 +560,6 @@
     scrollToLinkThenClick(link);
   }
 
-  function pickRandomLink() {
-    const links = getAllCandidateLinks();
-    if (!links.length) return null;
-    return links[Math.floor(Math.random() * links.length)];
-  }
   function scrollToLinkThenClick(link) {
     try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     catch (e) { link.scrollIntoView(true); }
@@ -569,6 +645,7 @@
 
   setTimeout(function () {
     checkAndSendDepth();
+    if (getNavCount() >= 10) { tryCloseTab('limit reached before scrolling'); return; }
     runScrollsUntilBottomThenAct();
   }, START_DELAY_MS);
 
