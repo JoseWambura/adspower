@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 7.2–12s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 7.2–12s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13] (Click-now, Navigate-later)
 // @namespace    http://tampermonkey.net/
-// @version      3.4
-// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (4–5 cycles, must reach bottom) then click internal link (exclude homepage & search, prefer tags). Tracks 13 navigations in this tab and tries to close.
+// @version      3.5
+// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (4–5 cycles, must reach bottom) then click internal link (exclude homepage & search, prefer tags). Tracks 13 navigations in this tab and tries to close. NOW clicks immediately, navigates after ~10s.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -284,11 +284,13 @@
 
   const START_DELAY_MS = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
   const SCROLL_DIST_MIN_PX = 600, SCROLL_DIST_MAX_PX = 900;
-  const SCROLL_DUR_MIN_MS  = 7200, SCROLL_DUR_MAX_MS  = 12000; // Increased by 20% from 6000–10000
+  const SCROLL_DUR_MIN_MS  = 7200, SCROLL_DUR_MAX_MS  = 12000; // 7.2–12s
   const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (5 - 4 + 1)) + 4;
   const READ_PAUSE_MIN_MS  = 500,  READ_PAUSE_MAX_MS  = 1500;
   const BOTTOM_CONFIRM_MS  = 1500;
-  const PRE_CLICK_WAIT_MS  = 10000; // 10s wait before clicking link
+
+  // 🔁 New: we wait AFTER click, not before
+  const POST_CLICK_DELAY_MS =  randInt(10000, 14000)
 
   const CLICK_AFTER_MIN_MS = 1200, CLICK_AFTER_MAX_MS = 3200, SAME_HOST_ONLY = true;
   const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.40, FORM_CLICK_HOVER_MS = 350;
@@ -449,6 +451,37 @@
     }
   }
 
+  // NEW: click immediately, navigate after delay
+  function clickNowNavigateLater(link, delayMs) {
+    const dest = (link.getAttribute('href') || link.href || '').trim();
+    if (!dest) return;
+
+    // Prevent default navigation from this click
+    const blocker = function (e) {
+      const a = e.target && (e.target.closest ? e.target.closest('a') : null);
+      if (a === link) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        document.removeEventListener('click', blocker, true);
+      }
+    };
+    document.addEventListener('click', blocker, true);
+
+    // Fire the click now (analytics / handlers can run)
+    try {
+      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    } catch (e) {
+      try { link.click(); } catch (_e) {}
+    }
+
+    // Navigate later
+    setTimeout(function () {
+      beforeNavigateIncrement();
+      try { window.location.assign(dest); }
+      catch { window.location.href = dest; }
+    }, delayMs);
+  }
+
   function clickWithCursorFlow(link) {
     const rect = link.getBoundingClientRect();
     const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
@@ -459,14 +492,9 @@
     cursorWander(cursor, wanderSteps, function () {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(function () {
-        console.log('[HumanScroll] Waiting 10s before clicking:', link.href);
-        setTimeout(function () {
-          console.log('[HumanScroll] Clicking:', link.href);
-          beforeNavigateIncrement();
-          try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-          catch (e) { link.click(); }
-          removeCursor(cursor);
-        }, PRE_CLICK_WAIT_MS);
+        console.log('[HumanScroll] Click now; navigate after', POST_CLICK_DELAY_MS, 'ms →', link.href);
+        clickNowNavigateLater(link, POST_CLICK_DELAY_MS);
+        removeCursor(cursor);
       }, FINAL_HOVER_MS);
     });
   }
@@ -564,7 +592,7 @@
     try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     catch (e) { link.scrollIntoView(true); }
     setTimeout(function () { checkAndSendDepth(); }, 250);
-    const wait = randInt(CLICK_AFTER_MIN_MS, CLICK_AFTER_MAX_MS);
+    const wait = randInt(CLICK_AFTER_MIN_MS, CLICK_AFTER_MAX_MS); // "aim" time (small)
     setTimeout(function () {
       if (!isDisplayed(link)) {
         console.warn('[HumanScroll] Picked link isn’t displayed. Repicking…');
