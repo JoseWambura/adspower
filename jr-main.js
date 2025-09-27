@@ -430,49 +430,51 @@
   // --- New: Post-click scroll sequence, then navigate ---
   function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
 
-  function slowHumanScroll(durationMs) {
-    // small, human-like incremental scrolls over ~5s
-    return new Promise(resolve => {
-      const startT = performance.now();
-      let lastY = window.pageYOffset || document.documentElement.scrollTop || 0;
+ function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
-      (function frame(now) {
-        const t = Math.min(1, (now - startT) / durationMs);
-        // oscillating small steps (up to ~120px total)
-        const step = 120 * (0.5 - Math.cos(t * Math.PI) / 2); // 0 -> 120 easing
-        const targetY = lastY + step;
-        const delta = targetY - (window.pageYOffset || document.documentElement.scrollTop || 0);
-        window.scrollBy(0, delta);
-        checkAndSendDepth();
-        if (t < 1) requestAnimationFrame(frame);
-        else resolve();
-      })(performance.now());
-    });
-  }
+// ↑ NEW: allow a slightly faster slow-scroll via amplitudePx
+async function slowHumanScroll(durationMs, amplitudePx = 180) { // was 120 → 180 (a bit faster)
+  return new Promise(resolve => {
+    const startT = performance.now();
+    let lastY = window.pageYOffset || document.documentElement.scrollTop || 0;
+    (function frame(now) {
+      const t = Math.min(1, (now - startT) / durationMs);
+      const step = amplitudePx * (0.5 - Math.cos(t * Math.PI) / 2); // eased micro-steps
+      const targetY = lastY + step;
+      const delta = targetY - (window.pageYOffset || document.documentElement.scrollTop || 0);
+      window.scrollBy(0, delta);
+      if (t < 1) requestAnimationFrame(frame);
+      else resolve();
+    })(performance.now());
+  });
+}
 
-  function fastScrollToBottom(durationMs) {
-    return new Promise(resolve => {
-      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      const full = Math.max(
-        document.body.scrollHeight, document.documentElement.scrollHeight,
-        document.body.offsetHeight, document.documentElement.offsetHeight,
-        document.body.clientHeight, document.documentElement.clientHeight
-      );
-      const maxY = full - (window.innerHeight || document.documentElement.clientHeight || 0);
-      const dist = Math.max(0, maxY - startY);
-      if (dist <= 2) return resolve();
+// ↓ Slower “burst” than before (increase duration → lower speed)
+async function fastScrollToBottom(durationMs) {
+  return new Promise(resolve => {
+    const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+    const full = Math.max(
+      document.body.scrollHeight, document.documentElement.scrollHeight,
+      document.body.offsetHeight, document.documentElement.offsetHeight,
+      document.body.clientHeight, document.documentElement.clientHeight
+    );
+    const maxY = full - (window.innerHeight || document.documentElement.clientHeight || 0);
+    const dist = Math.max(0, maxY - startY);
+    if (dist <= 2) return resolve();
 
-      const startT = performance.now();
-      (function frame(now) {
-        const t = Math.min(1, (now - startT) / durationMs);
-        const y = startY + dist * easeInOutQuad(t);
-        window.scrollTo(0, y);
-        checkAndSendDepth();
-        if (t < 1) requestAnimationFrame(frame);
-        else resolve();
-      })(performance.now());
-    });
-  }
+    const startT = performance.now();
+    (function frame(now) {
+      const t = Math.min(1, (now - startT) / durationMs);
+      // gentle ease (slower burst): easeInOutQuad
+      const eased = (t < 0.5) ? 2*t*t : -1 + (4 - 2*t)*t;
+      const y = startY + dist * eased;
+      window.scrollTo(0, y);
+      if (t < 1) requestAnimationFrame(frame);
+      else resolve();
+    })(performance.now());
+  });
+}
+
 
   function clickNowThenScrollThenNavigate(link) {
     const dest = (link.getAttribute('href') || link.href || '').trim();
