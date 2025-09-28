@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (+ Random Whitelist Nav, Close @13)
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (Faster by ~30s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
 // @namespace    http://tampermonkey.net/
-// @version      3.6
-// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll, then opens one random URL from a fixed whitelist (no in-page clicks). Uses sessionStorage rotation (no repeats) and enforces a 13-page limit per tab.
+// @version      3.5
+// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (fewer/faster cycles, still reaches bottom) then click internal link (exclude homepage & search, prefer tags). Cuts ~30s from page time while keeping the 15–20s initial delay.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -22,15 +22,6 @@
   function setNavCount(n) {
     try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {}
   }
-  function beforeNavigateIncrement() {
-    const n = getNavCount() + 1;
-    setNavCount(n);
-    if (n >= 13) {
-      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
-    } else {
-      console.log('[HumanScroll] Navigation count =', n);
-    }
-  }
   function tryCloseTab(reason) {
     console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
     window.close();
@@ -39,7 +30,7 @@
   }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
-    if (n >= 13) {
+    if (n >= 13) { // unified to 13 everywhere
       setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
     }
   })();
@@ -279,7 +270,7 @@
   console.log('[ImgBlock] Active (top page). Allowed image hosts:', ALLOW_HOSTS.map(r => r.source).join(', '));
 
   /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER — tuned a bit faster overall
+   *  B) HUMAN-LIKE SCROLLER — tuned to be ~30s faster overall
    ******************************************************************/
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
@@ -295,14 +286,17 @@
   })();
 
   const START_DELAY_MS    = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // keep 15–20s
-  const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 5000;
-  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // 3–4 cycles
-  const READ_PAUSE_MIN_MS  = 4000,  READ_PAUSE_MAX_MS  = 5000;
-  const BOTTOM_CONFIRM_MS  = 900;
+  const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;   // ↑ longer steps to reach bottom sooner
+  const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 5000;   // ↓ faster per-cycle (was 7200–12000)
+  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // ↓ 3–4 cycles (was 4–5)
+  const READ_PAUSE_MIN_MS  = 4000,  READ_PAUSE_MAX_MS  = 5000;    // ↓ shorter read pauses
+  const BOTTOM_CONFIRM_MS  = 900;                                // ↓ quicker confirm
+  const PRE_CLICK_WAIT_MS  = 4000;                               // ↓ shorter pre-click wait (~4s)
 
-  const firedPercents = new Set();
-  const BREAKPOINTS = [25, 50, 75, 90, 100];
+  const CLICK_AFTER_MIN_MS = 800, CLICK_AFTER_MAX_MS = 1600;     // ↓ faster aim
+  const SAME_HOST_ONLY = true;
+  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.60, FORM_CLICK_HOVER_MS = 300; // small hover trim
+  const WANDER_STEPS_MIN = 2, WANDER_STEPS_MAX = 3, WANDER_STEP_MS = 260, FINAL_HOVER_MS = 300; // ↓ lighter cursor wander
 
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
   function atBottom(threshold) {
@@ -316,6 +310,54 @@
     );
     return y + view >= doc - threshold;
   }
+  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch (e) { return false; } }
+  function isGoodHref(href) {
+    if (!href) return false;
+    const s = href.trim().toLowerCase();
+    if (!s) return false;
+    if (s.startsWith('#') || s.startsWith('javascript:') || s.startsWith('mailto:') || s.startsWith('tel:')) return false;
+    return true;
+  }
+  function isDisplayed(el) { if (!el) return false; if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return false; const style = window.getComputedStyle(el); if (style.visibility === 'hidden' || style.display === 'none') return false; return true; }
+  function inViewport(el) { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight); }
+
+  function isHomeURL(u) {
+    try {
+      const url = new URL(u, location.href);
+      if (url.origin !== location.origin) return false;
+      const normalized = url.pathname.replace(/\/+$/, '/');
+      return normalized === '/';
+    } catch { return false; }
+  }
+  function isSearchURL(u) {
+    try {
+      const url = new URL(u, location.href);
+      if (url.origin !== location.origin) return false;
+      if (url.searchParams.has('s')) return true;
+      const p = url.pathname.toLowerCase();
+      if (p === '/search' || p.startsWith('/search/')) return true;
+      if (p.includes('/?s=')) return true;
+      if (p.includes('search')) return true;
+      if ((url.search || '').toLowerCase().includes('search')) return true;
+      return false;
+    } catch { return false; }
+  }
+  function isTagLink(a) {
+    try {
+      if (!a) return false;
+      if (a.rel && String(a.rel).toLowerCase().split(/\s+/).includes('tag')) return true;
+      if (a.className && /\btag\b/i.test(a.className)) return true;
+      const href = a.getAttribute('href') || a.href || '';
+      const url = new URL(href, location.href);
+      if (url.origin === location.origin && /\/tag\/[^/]/i.test(url.pathname)) return true;
+      const txt = (a.innerText || a.textContent || '').trim().toLowerCase();
+      if (txt && (txt.startsWith('#') || txt.includes('tag'))) return true;
+    } catch {}
+    return false;
+  }
+
+  const firedPercents = new Set();
+  const BREAKPOINTS = [25, 50, 75, 90, 100];
   function getPercentScrolled() {
     const y = window.pageYOffset || document.documentElement.scrollTop || 0;
     const view = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -332,16 +374,220 @@
     if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent }); }
     else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title }); }
   }
-  function checkAndSendDepth() {
-    const pct = getPercentScrolled();
-    for (let i = 0; i < BREAKPOINTS.length; i++) {
-      if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
+  function checkAndSendDepth() { const pct = getPercentScrolled(); for (let i = 0; i < BREAKPOINTS.length; i++) { if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]); } }
+  window.addEventListener('scroll', function () { if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t); checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth); }, { passive: true });
+
+  function getAllCandidateLinks() {
+  const links = Array.from(document.querySelectorAll('a[href]'));
+  return links.filter(a => {
+    const href = a.getAttribute('href') || '';
+    if (!isGoodHref(href)) return false;
+    if (SAME_HOST_ONLY && !sameHost(a.href)) return false;
+    if (isHomeURL(a.href)) return false;
+    if (isSearchURL(a.href)) return false;
+
+    // ⬇️ Exclude the modal search button/trigger
+    if (isSearchModalLink(a)) return false;
+
+    return true;
+  });
+}
+
+
+  function pickRandomLink() {
+    const all = getAllCandidateLinks();
+    if (!all.length) return null;
+    const tags = all.filter(isTagLink);
+    const pool = tags.length ? tags : all;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function logAllLinks() {
+    const raw = Array.from(document.querySelectorAll('a'));
+    const mapped = raw.map((a, i) => ({
+      index: i,
+      text: (a.innerText || a.textContent || '').trim().slice(0, 120),
+      href: a.href || a.getAttribute('href') || '',
+      isTag: isTagLink(a),
+      isSearch: isSearchURL(a.href),
+      isHome: isHomeURL(a.href)
+    }));
+    console.log('[HumanScroll] Found', mapped.length, 'links (with flags).');
+    if (console.table) console.table(mapped);
+    return mapped;
+  }
+
+  function createFakeCursor() {
+    const cursor = document.createElement('div');
+    cursor.style.position = 'fixed';
+    cursor.style.top = '0px';
+    cursor.style.left = '0px';
+    cursor.style.width = '14px';
+    cursor.style.height = '14px';
+    cursor.style.border = '2px solid #333';
+    cursor.style.borderRadius = '50%';
+    cursor.style.background = 'rgba(255,255,255,0.85)';
+    cursor.style.zIndex = '999999';
+    cursor.style.pointerEvents = 'none';
+    cursor.style.transition = 'top 0.25s linear, left 0.25s linear';
+    document.body.appendChild(cursor);
+    return cursor;
+  }
+  function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
+  function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
+  function cursorWander(cursor, steps, cb) {
+    steps = Math.max(0, steps|0);
+    let i = 0;
+    (function step() {
+      if (i >= steps) { cb && cb(); return; }
+      i++;
+      const x = randInt(30, Math.max(60, window.innerWidth - 30));
+      const y = randInt(30, Math.max(60, window.innerHeight - 30));
+      moveCursorTo(cursor, x, y);
+      setTimeout(step, WANDER_STEP_MS);
+    })();
+  }
+
+  function beforeNavigateIncrement() {
+    const n = getNavCount() + 1;
+    setNavCount(n);
+    if (n >= 13) {
+      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
+    } else {
+      console.log('[HumanScroll] Navigation count =', n);
     }
   }
-  window.addEventListener('scroll', function () {
-    if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
-    checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
-  }, { passive: true });
+
+  function clickWithCursorFlow(link) {
+    const rect = link.getBoundingClientRect();
+    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
+    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
+    const cursor = createFakeCursor();
+    moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
+    const wanderSteps = randInt(WANDER_STEPS_MIN, WANDER_STEPS_MAX);
+    cursorWander(cursor, wanderSteps, function () {
+      moveCursorTo(cursor, targetX, targetY);
+      setTimeout(function () {
+        console.log('[HumanScroll] Waiting ~' + PRE_CLICK_WAIT_MS + 'ms before clicking:', link.href);
+        setTimeout(function () {
+          console.log('[HumanScroll] Clicking:', link.href);
+          beforeNavigateIncrement();
+          try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
+          catch (e) { link.click(); }
+          removeCursor(cursor);
+        }, PRE_CLICK_WAIT_MS);
+      }, FINAL_HOVER_MS);
+    });
+  }
+
+  function isSafeForm(form) {
+    const act = form.getAttribute('action') || '';
+    try { if (act) { if (!sameHost(new URL(act, location.href).href)) return false; } } catch (e) { return false; }
+    const text = (form.innerText || '').toLowerCase();
+    if (text.includes('logout') || text.includes('delete') || text.includes('unsubscribe')) return false;
+    if (form.querySelector('input[type="password"], input[name*="pass"], input[id*="pass"]')) return false;
+    if (!findSubmitButton(form)) return false;
+    return true;
+  }
+  function getCandidateForms() { return Array.from(document.querySelectorAll('form')).filter(isSafeForm); }
+  function findSubmitButton(form) {
+    return form.querySelector('button[type="submit"], input[type="submit"], button:not([type]), input[type="button"][name="submit"], input[type="image"]');
+  }
+  function fillInput(el) {
+    const name = (el.name || el.id || '').toLowerCase();
+    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+    if (el.type === 'email' || name.includes('email')) el.value = 'user' + randInt(1000,9999) + '@example.com';
+    else if (el.type === 'tel' || name.includes('phone')) el.value = '+255' + randInt(600000000, 799999999);
+    else if (el.type === 'number') el.value = randInt(1, 100);
+    else if (name.includes('name')) el.value = 'John Doe';
+    else if (name.includes('city')) el.value = 'Dar es Salaam';
+    else if (name.includes('country')) el.value = 'Tanzania';
+    else if (el.type === 'url') el.value = 'https://example.com';
+    else if (ph.includes('comment') || ph.includes('message') || ph.includes('feedback') || el.tagName === 'TEXTAREA') el.value = 'Just checking this out. Looks good!';
+    else el.value = (el.tagName === 'TEXTAREA') ? 'Hello!' : 'Sample';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function fillFormFields(form) {
+    form.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], textarea').forEach(fillInput);
+    form.querySelectorAll('select').forEach(function (sel) {
+      const opt = Array.from(sel.options).find(o => o.value && o.value.trim() !== '');
+      if (opt) sel.value = opt.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    form.querySelectorAll('input[type="checkbox"]').forEach(function (c) {
+      if (Math.random() < 0.35) { c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    const radiosByName = {};
+    form.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      (radiosByName[r.name] = radiosByName[r.name] || []).push(r);
+    });
+    Object.keys(radiosByName).forEach(function (n) {
+      const g = radiosByName[n], pick = g[randInt(0, g.length - 1)];
+      if (pick) { pick.checked = true; pick.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+  }
+  function submitFormWithCursor(form) {
+    const btn = findSubmitButton(form) || form;
+    try { btn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    const rect = btn.getBoundingClientRect();
+    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
+    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
+    const cursor = createFakeCursor();
+    moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
+    const steps = randInt(WANDER_STEPS_MIN, WANDER_STEPS_MAX);
+    cursorWander(cursor, steps, function () {
+      moveCursorTo(cursor, targetX, targetY);
+      setTimeout(function () {
+        console.log('[HumanScroll] Submitting form…');
+        beforeNavigateIncrement();
+        if (btn !== form) {
+          try { btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
+          catch (e) { btn.click(); }
+        } else {
+          form.requestSubmit ? form.requestSubmit() : form.submit();
+        }
+        removeCursor(cursor);
+      }, FORM_CLICK_HOVER_MS);
+    });
+  }
+
+  function tryFormFlowOrFallbackToLink() {
+    if (getNavCount() >= 13) { tryCloseTab('limit reached before action'); return; }
+    if (ENABLE_FORMS && Math.random() < FORM_SUBMIT_PROB) {
+      const forms = getCandidateForms();
+      if (forms.length) {
+        const form = forms[randInt(0, forms.length - 1)];
+        console.log('[HumanScroll] Chose FORM path. Filling & submitting:', form);
+        try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+        setTimeout(function () { fillFormFields(form); submitFormWithCursor(form); }, randInt(600, 1100));
+        return;
+      } else { console.log('[HumanScroll] No safe forms found. Falling back to link click.'); }
+    }
+    const link = pickRandomLink();
+    if (!link) { console.warn('[HumanScroll] No suitable link to click.'); return; }
+    scrollToLinkThenClick(link);
+  }
+
+  function scrollToLinkThenClick(link) {
+    try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    catch (e) { link.scrollIntoView(true); }
+    setTimeout(function () { checkAndSendDepth(); }, 200);
+    const wait = randInt(CLICK_AFTER_MIN_MS, CLICK_AFTER_MAX_MS);
+    setTimeout(function () {
+      if (!isDisplayed(link)) {
+        console.warn('[HumanScroll] Picked link isn’t displayed. Repicking…');
+        const alt = pickRandomLink();
+        if (alt && alt !== link) return scrollToLinkThenClick(alt);
+        return;
+      }
+      if (!inViewport(link)) {
+        try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+        return setTimeout(function () { clickWithCursorFlow(link); }, randInt(300, 600));
+      }
+      clickWithCursorFlow(link);
+    }, wait);
+  }
 
   function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
   function animateScrollByPx(totalPx, durationMs) {
@@ -390,171 +636,28 @@
     }, BOTTOM_CONFIRM_MS);
   }
 
-  /******************************************************************
-   *  C) TARGETED RANDOM NAV — rotate through your whitelist (no repeats)
-   ******************************************************************/
-  const LINK_TARGETS = [
-    "https://jrsports.click/tag/potters-next-task-will-be-to-turn-things-around-in-the-premier-league/",
-    "https://jrsports.click/tag/a-major-transfer-story-unfolding/",
-    "https://jrsports.click/tag/the-complexity-of-player-coach-relationships/",
-    "https://jrsports.click/tag/bridging-the-gap-fan-engagement-nationwide/",
-    "https://jrsports.click/tag/personal-terms-agreed-player-on-board-with-chiefs-vision/",
-    "https://jrsports.click/tag/amakhosi-offer-straight-cash/",
-    "https://jrsports.click/tag/what-this-victory-means-for-mokwanas-future/",
-    "https://jrsports.click/tag/says-piers-morgan/",
-    "https://jrsports.click/tag/should-chiefs-forget-about-appollis-and-find-a-more-viable-target/",
-    "https://jrsports.click/tag/walker-could-link-up-with-fellow-england-internationals-abraham-and-tomori-at-the-san-siro/",
-    "https://jrsports.click/tag/chiefs-hard-at-work-in-the-january-window/",
-    "https://jrsports.click/kaizer-chiefs-transfers-ramiro-vaca-zitha-kwinika-wandile-duba/",
-    "https://jrsports.click/orlando-pirates-identify-new-striker-target-for-this-window/",
-    "https://jrsports.click/tag/mohamed-salah-the-king-of-anfield/",
-    "https://jrsports.click/real-madrid-vs-manchester-city-a-modern-champions-league-rivalry-what-could-2025-hold/",
-    "https://jrsports.click/tag/the-barcelona-and-la-liga-transfer-saga/",
-    "https://jrsports.click/tag/the-managers-take-jurgen-klopp-on-salahs-importance/",
-    "https://jrsports.click/antony-launches-legal-action-against-ajax-over-unsavoury-manchester-united-transfer/",
-    "https://jrsports.click/tag/mduduzi-shabalala/",
-    "https://jrsports.click/tag/key-highlights-of-the-betway-sponsorship/",
-    "https://jrsports.click/tag/saleng-situation-dividing-fans/",
-    "https://jrsports.click/no-offer-from-kaizer-chiefs-for-prime-transfer-target/",
-    "https://jrsports.click/lobola-negotiations-former-kaizer-chiefs-star-pictures/",
-    "https://jrsports.click/kaizer-chiefs-bid-for-top-nasreddine-nabi-target-rejected/",
-    "https://jrsports.click/tag/arsenal-vs-tottenham-what-has-been-said/",
-    "https://jrsports.click/heres-how-kaizer-chiefs-should-spend-r60-million/",
-    "https://jrsports.click/orlando-pirates-deny-monnapule-salengs-uae-move-agent-claims-it-left-him-disheartened/",
-    "https://jrsports.click/pep-guardiolas-confidence-in-e60m-signing-nico-gonzalez-a-midfield-gem-for-manchester-city/",
-    "https://jrsports.click/tag/nasreddine-nabis-absence-a-blessing-in-disguise/",
-    "https://jrsports.click/tag/midweek-premier-league-fixtures/",
-    "https://jrsports.click/tag/makhehleni-makhaula-missed-midweek/",
-    "https://jrsports.click/tag/golden-arrows-in-durban/",
-    "https://jrsports.click/tag/the-transfer-of-dani-olmo-a-strategic-move/",
-    "https://jrsports.click/tag/walker-favours-a-move-to-ac-milan-as-he-seeks-an-exit-away-from-the-etihad/",
-    "https://jrsports.click/kaizer-chiefs-set-to-unveil-new-signing-a-major-boost-for-the-glamour-boys/",
-    "https://jrsports.click/orlando-pirates-beating-chiefs-and-sundowns-for-bafana-star/",
-    "https://jrsports.click/tag/brighton-unveiled-gomez-at-the-amex-in-december/",
-    "https://jrsports.click/tag/caf-champions-league-orlando-pirates-vs-cr-belouizdad/",
-    "https://jrsports.click/tag/kahrabas-career-after-al-ahly/",
-    "https://jrsports.click/tag/dubas-rise-to-prominence/",
-    "https://jrsports.click/tag/wayne-rooney-has-been-tipped-for-a-return-to-where-it-all-began-for-him/",
-    "https://jrsports.click/tag/why-is-maela-on-the-out/",
-    "https://jrsports.click/elias-mokwana-secures-first-major-trophy-as-esperance-de-tunis-clinches-tunisian-super-cup/",
-    "https://jrsports.click/morena-ramoreboli-appointed-head-coach-of-botswanas-national-team-a-new-era-for-the-zebras/",
-    "https://jrsports.click/tag/coach-jose-riveiros-confidence/",
-    "https://jrsports.click/mathys-tel-a-rising-star-in-european-football/",
-    "https://jrsports.click/tag/mayo-scored-for-hosts/",
-    "https://jrsports.click/man-citys-premier-league-rivals-told-to-sign-kyle-walker-as-champions-league-contenders-eye-up-move/",
-    "https://jrsports.click/tag/pitso-mosimane-a-legend-in-football-coaching/",
-    "https://jrsports.click/tag/the-meeting-that-changed-everything/",
-    "https://jrsports.click/tag/whats-next-for-saleng/",
-    "https://jrsports.click/terms-and-conditions/",
-    "https://jrsports.click/tag/khusanov-is-set-to-become-citys-first-signing-of-the-transfer-window/",
-    "https://jrsports.click/tag/chairman-confirms-kaizer-chiefs-approach-for-his-right-back/",
-    "https://jrsports.click/kaizer-chiefs-full-list-five-bafana-bafana-stars/",
-    "https://jrsports.click/premier-league-done-deals-every-completed-transfer-in-2025-january-window-tottenham-land-new-goalkeeper/",
-    "https://jrsports.click/more-worrying-news-confirmed-between-pirates-and-saleng/",
-    "https://jrsports.click/tag/the-uncertain-road-ahead/",
-    "https://jrsports.click/tag/nabis-response/",
-    "https://jrsports.click/enzo-maresca-shuts-down-reporter-with-five-word-response-as-he-laughs-off-awkward-question/",
-    "https://jrsports.click/dr-patrice-motsepe-re-elected-as-caf-president-a-new-era-for-african-football-until-2029/",
-    "https://jrsports.click/tag/dream-starting-xi-with-new-signings/",
-    "https://jrsports.click/tag/why-pirates-said-no/",
-    "https://jrsports.click/tag/dubas-potential-at-kaizer-chiefs/",
-    "https://jrsports.click/tag/2016-real-madrid-edge-past-manchester-city-in-the-semifinals/",
-    "https://jrsports.click/tag/could-chiefs-have-been-a-better-fit/",
-    "https://jrsports.click/tag/buccaneers-proposed-swap-plus-cash/",
-    "https://jrsports.click/tag/more-on-basadien-negotiations/",
-    "https://jrsports.click/itumeleng-khune-criticizes-coach-nasreddine-nabi-over-handling-of-mfundo-vilakazi/",
-    "https://jrsports.click/tag/the-premier-league-season-is-the-highlight-of-a-football-fans-year/",
-    "https://jrsports.click/tag/mngqithis-legacy-and-the-road-ahead/",
-    "https://jrsports.click/tag/but-rogers-scored-the-villa-winner-after-a-controversial-onana-leveller/",
-    "https://jrsports.click/category/news/",
-    "https://jrsports.click/tag/can-amakhosi-claim-the-nedbank-cup/",
-    "https://jrsports.click/nabi-chiefs-star-will-continue-in-new-position-if/",
-    "https://jrsports.click/tag/three-signings-in-january-a-bold-statement-of-intent/",
-    "https://jrsports.click/tag/basadien-to-replace-ageing-skipper-maela/",
-    "https://jrsports.click/kyle-walker-keen-on-move-to-ac-milan-after-asking-pep-guardiola-to-leave-man-city/",
-    "https://jrsports.click/tag/pirates-aim-to-lure-basadien-over-from-stellenbosch/",
-    "https://jrsports.click/tag/why-cele-fits-kaizer-chiefs-plans/",
-    "https://jrsports.click/tag/a-new-era-with-betway-premiership-sponsorship/",
-    "https://jrsports.click/junior-khanyes-bold-prediction-al-ahly-will-claim-caf-champions-league-glory-despite-loss-to-orlando-pirates/",
-    "https://jrsports.click/tag/is-duba-a-kaizer-chiefs-legend-in-the-making/",
-    "https://jrsports.click/tag/is-basadien-the-answer-to-pirates-left-back-conundrum/",
-    "https://jrsports.click/las-vegas-grand-prix-2025-schedule-drivers-and-key-insights/",
-    "https://jrsports.click/golf-holiday-packages-scotland-ultimate-guide-for-2025/",
-    "https://jrsports.click/leicester-turn-down-chance-to-sign-premier-league-star-with-club-set-to-announce-arrival-of-3million-alternative/",
-    "https://jrsports.click/tag/a-bright-future-for-amakhosi/",
-    "https://jrsports.click/tag/group-f/",
-    "https://jrsports.click/kaizer-chiefs-boss-nabi-isolates-two-priority-transfer-targets/",
-    "https://jrsports.click/tag/a-landmark-moment-for-mokwana-in-tunisia/",
-    "https://jrsports.click/tag/velebayi-wants-to-play-top-flight-soccer/",
-    "https://jrsports.click/ex-pirates-sundowns-striker-kermit-erasmus-is-back-in-the-psl/",
-    "https://jrsports.click/tag/how-many-matches-are-in-a-premier-league-season/",
-    "https://jrsports.click/i-know-your-faces-pep-guardiola-scolds-autograph-hunters-and-urges-them-to-rethink-their-lives/",
-    "https://jrsports.click/tag/implications-for-south-african-football/",
-    "https://jrsports.click/tag/pitso-mosimanes-response-and-legacy/",
-    "https://jrsports.click/tag/how-does-it-work/",
-    "https://jrsports.click/kaizer-chiefs-three-most-important-players/",
-    "https://jrsports.click/rulani-mokwena-set-to-inflict-double-transfer-blow-to-kaizer-chiefs/"
-  ];
+  function isSearchModalLink(a) {
+  if (!a) return false;
+  const label    = (a.getAttribute('aria-label') || '').toLowerCase();
+  const role     = (a.getAttribute('role') || '').toLowerCase();
+  const hasPopup = (a.getAttribute('aria-haspopup') || '').toLowerCase() === 'dialog';
+  const controls = (a.getAttribute('aria-controls') || '').toLowerCase();
+  const trigger  = (a.getAttribute('data-gpmodal-trigger') || '').toLowerCase();
+  const href     = (a.getAttribute('href') || '').trim();
 
-  // Stored in sessionStorage so each tab gets its own rotation
-  const POOL_KEY = '__hs_link_pool_v1';
+  // Your specific search trigger:
+  // <a href="#" role="button" aria-label="Open search" aria-haspopup="dialog"
+  //    aria-controls="gp-search" data-gpmodal-trigger="gp-search"></a>
+  if (label === 'open search') return true;
+  if (controls === 'gp-search') return true;
+  if (trigger === 'gp-search') return true;
+  if (role === 'button' && hasPopup && (controls === 'gp-search' || trigger === 'gp-search')) return true;
+  if (href === '#' && (controls === 'gp-search' || trigger === 'gp-search')) return true;
 
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
+  return false;
+}
 
-  function getPoolState() {
-    try {
-      const raw = sessionStorage.getItem(POOL_KEY);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch { return null; }
-  }
 
-  function setPoolState(state) {
-    try { sessionStorage.setItem(POOL_KEY, JSON.stringify(state)); } catch {}
-  }
-
-  function ensurePool() {
-    let s = getPoolState();
-    if (!s || !Array.isArray(s.order) || typeof s.idx !== 'number' || s.order.length !== LINK_TARGETS.length) {
-      s = { order: shuffle([...Array(LINK_TARGETS.length).keys()]), idx: 0 };
-      setPoolState(s);
-    }
-    return s;
-  }
-
-  function pickNextTarget() {
-    const s = ensurePool();
-    const i = s.order[s.idx];
-    s.idx += 1;
-    if (s.idx >= s.order.length) {
-      // reshuffle for the next pass
-      s.order = shuffle(s.order);
-      s.idx = 0;
-    }
-    setPoolState(s);
-    return LINK_TARGETS[i];
-  }
-
-  function navigateToRandomTarget() {
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before target nav'); return; }
-    const target = pickNextTarget();
-    const delay = Math.floor(Math.random() * (1600 - 800 + 1)) + 800; // small natural wait
-    console.log('[HumanScroll] Next target chosen:', target, '… navigating in ~', delay, 'ms');
-    setTimeout(() => {
-      beforeNavigateIncrement();
-      location.href = target; // same-tab nav keeps the flow & counter
-    }, delay);
-  }
-
-  /******************************************************************
-   *  D) Flow — scroll to bottom, then go to a random whitelist URL
-   ******************************************************************/
   function runScrollsUntilBottomThenAct() {
     let cyclesDone = 0;
     (function loop() {
@@ -564,8 +667,9 @@
           if (atBottom() && cyclesDone >= MIN_SCROLL_CYCLES) {
             confirmBottomStable(function () {
               checkAndSendDepth();
-              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Going to a random whitelisted tag URL…');
-              navigateToRandomTarget();
+              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Deciding next action…');
+              logAllLinks();
+              tryFormFlowOrFallbackToLink();
             });
           } else { loop(); }
         });
@@ -573,9 +677,6 @@
     })();
   }
 
-  /******************************************************************
-   *  E) Kickoff: initial wait, then scrolling
-   ******************************************************************/
   setTimeout(function () {
     checkAndSendDepth();
     if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
