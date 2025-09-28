@@ -32,11 +32,25 @@
     }
   }
   function tryCloseTab(reason) {
-    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
-    window.close();
-    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
-    setTimeout(() => { try { location.replace('about:blank'); } catch {} }, 350);
-  }
+  console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
+
+  // Stop network activity and blank the page (works even when window.close() is blocked)
+  try { window.stop(); } catch {}
+  try {
+    document.documentElement.innerHTML = '';
+    document.title = 'Done';
+    document.documentElement.style.background = '#fff';
+  } catch {}
+
+  // Best-effort navigate to inert page
+  try { location.replace('about:blank'); } catch {}
+  setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
+
+  // If the tab was opened by script, these may actually close it
+  try { window.close(); } catch {}
+  setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+}
+
   (function maybeCloseOnLoad() {
     const n = getNavCount();
     if (n >= 13) {
