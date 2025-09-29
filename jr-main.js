@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (+ Recent Posts Random Nav, Close @13)
+// @name         JR Sports: Block Images (except AdX) + Human-like Scroll (+ Recent Posts Random Nav, Close @13)
 // @namespace    http://tampermonkey.net/
-// @version      3.12
-// @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes.
+// @version      3.13
+// @description  Human-like scroll, then ONLY open a random "Recent Posts" link. Tracks visited recent posts per tab (no repeats) and sends GA event before navigation. Enforces 13-page limit and closes. Forces AdX visibility, logs engagement time.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -52,7 +52,7 @@
   })();
 
   /******************************************************************
-   *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
+   *  A) IMAGE CONTROL — allow AdX/Google Ads, block other images/iframes
    ******************************************************************/
   const HIDE_NON_AD_IFRAMES = true;
   const ALLOW_HOSTS = [
@@ -272,6 +272,34 @@
     });
     mo.observe(document.documentElement, { childList: true, subtree: true });
   }
+
+  function ensureAdXVisibility() {
+    const adSlots = document.querySelectorAll('div[id^="google_ads_iframe_"]');
+    adSlots.forEach(slot => {
+      const rect = slot.getBoundingClientRect();
+      if (rect.top >= 0 && rect.bottom <= window.innerHeight) {
+        slot.style.display = 'block';
+        if (!slot.dataset.adxLoaded) {
+          slot.dataset.adxLoaded = '1';
+          if (typeof googletag !== 'undefined' && googletag.pubads) {
+            googletag.pubads().refresh([googletag.defineSlot('/YOUR_AD_UNIT', [300, 250], slot.id)]);
+          }
+        }
+      }
+    });
+  }
+
+  function logEngagementTime() {
+    let startTime = performance.now();
+    window.addEventListener('beforeunload', () => {
+      const duration = Math.round((performance.now() - startTime) / 1000);
+      console.log('[HumanScroll] Engagement time:', duration, 'seconds');
+      if (typeof window.gtag === 'function') {
+        window.gtag('event', 'engagement_time', { value: duration });
+      }
+    });
+  }
+
   stripExistingMedia();
   observeNewMedia();
   setupIframeHider();
@@ -295,9 +323,9 @@
 
   const START_DELAY_MS    = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 6000, SCROLL_DUR_MAX_MS  = 9000; // Slower scrolls
+  const SCROLL_DUR_MIN_MS  = 8000, SCROLL_DUR_MAX_MS  = 12000;
   const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (6 - 5 + 1)) + 5; // 5–6 cycles
-  const READ_PAUSE_MIN_MS  = 7000, READ_PAUSE_MAX_MS = 9000; // Longer dwells
+  const READ_PAUSE_MIN_MS  = 10000, READ_PAUSE_MAX_MS = 15000;
   const BOTTOM_CONFIRM_MS  = 900;
 
   const firedPercents = new Set();
@@ -357,6 +385,7 @@
         if (atBottom()) { resolve(); return; }
         window.scrollBy(0, delta);
         lastY = targetY;
+        ensureAdXVisibility(); // Force AdX visibility during scroll
         if (t < 1) requestAnimationFrame(frame);
         else resolve();
       })(performance.now());
@@ -486,6 +515,7 @@
     sendGARecentClick(target, 'click');
     setTimeout(() => {
       beforeNavigateIncrement();
+      ensureAdXVisibility(); // Final AdX push
       location.href = target;
     }, delay);
   }
@@ -539,7 +569,7 @@
     const link = links[Math.floor(Math.random() * links.length)];
     const rect = link.getBoundingClientRect();
     const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
-    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, height * 0.5));
+    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
     const cursor = createFakeCursor();
     moveCursorTo(cursor, 60, 60);
     setTimeout(() => {
@@ -549,6 +579,7 @@
         try { sendGARecentClick(new URL(url, location.href).href, 'click'); } catch {}
         console.log('[HumanScroll] Clicking Read More fallback:', url);
         beforeNavigateIncrement();
+        ensureAdXVisibility(); // AdX push before nav
         try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
         catch (e) { link.click(); }
         removeCursor(cursor);
@@ -582,7 +613,9 @@
    ******************************************************************/
   setTimeout(function () {
     checkAndSendDepth();
+    logEngagementTime(); // Start time tracking
     if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
+    ensureAdXVisibility(); // Initial AdX push
     runScrollsUntilBottomThenAct();
   }, START_DELAY_MS);
 
