@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (+ Recent Posts Random Nav, Close @13)
 // @namespace    http://tampermonkey.net/
-// @version      3.7
+// @version      3.12
 // @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes.
 // @match        *://jrsports.click/*
 // @run-at       document-start
@@ -32,25 +32,18 @@
     }
   }
   function tryCloseTab(reason) {
-  console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
-
-  // Stop network activity and blank the page (works even when window.close() is blocked)
-  try { window.stop(); } catch {}
-  try {
-    document.documentElement.innerHTML = '';
-    document.title = 'Done';
-    document.documentElement.style.background = '#fff';
-  } catch {}
-
-  // Best-effort navigate to inert page
-  try { location.replace('about:blank'); } catch {}
-  setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
-
-  // If the tab was opened by script, these may actually close it
-  try { window.close(); } catch {}
-  setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
-}
-
+    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
+    try { window.stop(); } catch {}
+    try {
+      document.documentElement.innerHTML = '';
+      document.title = 'Done';
+      document.documentElement.style.background = '#fff';
+    } catch {}
+    try { location.replace('about:blank'); } catch {}
+    setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
+    try { window.close(); } catch {}
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+  }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
     if (n >= 13) {
@@ -62,7 +55,6 @@
    *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
    ******************************************************************/
   const HIDE_NON_AD_IFRAMES = true;
-
   const ALLOW_HOSTS = [
     /\.googlesyndication\.com$/i,
     /\.doubleclick\.net$/i,
@@ -72,12 +64,10 @@
     /\.google\.com$/i,
     /\.googletagservices\.com$/i
   ];
-
   function isAllowedURL(url) {
     try { const u = new URL(url, location.href); return ALLOW_HOSTS.some(rx => rx.test(u.host)); }
     catch (_) { return false; }
   }
-
   (function hardBlockMediaSetters() {
     const imgDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
     if (imgDesc && imgDesc.set) {
@@ -150,7 +140,6 @@
       return origSetAttr.call(this, name, value);
     };
   })();
-
   function stripExistingMedia() {
     document.querySelectorAll('img[src], img[srcset], img[data-src], img[data-srcset]').forEach(img => {
       const src = img.getAttribute('src');
@@ -181,7 +170,6 @@
       s.removeAttribute('sizes');
     });
   }
-
   function observeNewMedia() {
     const mo = new MutationObserver(muts => {
       for (const m of muts) {
@@ -209,7 +197,6 @@
       attributes: true,
       attributeFilter: ['src', 'srcset', 'data-src', 'data-srcset', 'sizes']
     });
-
     function sanitizeImg(img) {
       const s = img.getAttribute('src');
       if (s && !isAllowedURL(s)) img.removeAttribute('src');
@@ -238,7 +225,6 @@
       s.removeAttribute('sizes');
     }
   }
-
   function setupIframeHider() {
     if (!HIDE_NON_AD_IFRAMES) return;
     function isAllowedIframeURL(url) {
@@ -286,7 +272,6 @@
     });
     mo.observe(document.documentElement, { childList: true, subtree: true });
   }
-
   stripExistingMedia();
   observeNewMedia();
   setupIframeHider();
@@ -310,9 +295,9 @@
 
   const START_DELAY_MS    = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 5000;
-  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // 3–4 cycles
-  const READ_PAUSE_MIN_MS  = 4000,  READ_PAUSE_MAX_MS  = 5000;
+  const SCROLL_DUR_MIN_MS  = 8000, SCROLL_DUR_MAX_MS  = 12000; // Slower scrolls
+  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (6 - 5 + 1)) + 5; // 5–6 cycles
+  const READ_PAUSE_MIN_MS  = 10000, READ_PAUSE_MAX_MS = 15000; // Longer dwells
   const BOTTOM_CONFIRM_MS  = 900;
 
   const firedPercents = new Set();
@@ -380,7 +365,7 @@
 
   function doOneScrollCycle() {
     const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
-    const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
+    const dur  = randInt(SCROLL_DUR_MIN_MS, SCROLL_DUR_MAX_MS);
     return animateScrollByPx(dist, dur).then(function () {
       checkAndSendDepth();
       return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
@@ -407,8 +392,8 @@
   /******************************************************************
    *  C) Recent Posts ONLY — rotation & GA event
    ******************************************************************/
-  const RECENT_POOL_KEY = '__hs_recent_pool_v1';  // session-scoped
-  const RECENT_VISITED_KEY = '__hs_recent_visited_v1'; // session-scoped
+  const RECENT_POOL_KEY = '__hs_recent_pool_v1';
+  const RECENT_VISITED_KEY = '__hs_recent_visited_v1';
 
   function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
   function isGoodHref(href) {
@@ -419,20 +404,17 @@
     return true;
   }
 
-  // Collect recent posts anchors from common "Recent Posts" widgets (including your sample)
   function getRecentPostLinks() {
     const recentSelectors = [
       'aside.widget_recent_entries a.wp-block-latest-posts__post-title',
       'aside.widget_recent_entries .wp-block-latest-posts__list a',
       '.wp-block-latest-posts__list a.wp-block-latest-posts__post-title',
-      // fallback: any li under recent posts list
       'aside.widget_recent_entries .wp-block-latest-posts__list li > a'
     ];
     let links = [];
     recentSelectors.forEach(sel => {
       links = links.concat(Array.from(document.querySelectorAll(sel)));
     });
-    // de-duplicate by href and filter
     const seen = new Set();
     const filtered = [];
     for (const a of links) {
@@ -468,18 +450,12 @@
     const candidates = getRecentPostLinks().map(o => o.href);
     if (!candidates.length) return null;
     const visited = loadVisited();
-
-    // Filter out already visited in this tab session
     let pool = candidates.filter(h => !visited.has(h));
-
-    // If everything is visited, reset the pool (start a fresh rotation)
     if (!pool.length) {
       visited.clear();
       saveVisited(visited);
       pool = candidates.slice();
     }
-
-    // Random choice
     const target = pool[Math.floor(Math.random() * pool.length)];
     visited.add(target);
     saveVisited(visited);
@@ -494,9 +470,7 @@
       } else if (Array.isArray(window.dataLayer)) {
         window.dataLayer.push({ event: label, link_url: targetUrl, page_location: location.href, page_title: document.title });
       }
-    } catch (e) {
-      // no-op
-    }
+    } catch (e) {}
   }
 
   function navigateToRecentTarget() {
@@ -518,7 +492,6 @@
 
   /******************************************************************
    *  D) Read More fallback (only if no Recent Posts found)
-   *     - Priority remains: RECENT POSTS > Read More
    ******************************************************************/
   function createFakeCursor() {
     const cursor = document.createElement('div');
@@ -566,11 +539,9 @@
     const link = links[Math.floor(Math.random() * links.length)];
     const rect = link.getBoundingClientRect();
     const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
-    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
+    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, height * 0.5));
     const cursor = createFakeCursor();
     moveCursorTo(cursor, 60, 60);
-
-    // small wander
     setTimeout(() => {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(() => {
