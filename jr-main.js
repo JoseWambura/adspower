@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (+ Recent Posts Random Nav, Close @13)
 // @namespace    http://tampermonkey.net/
-// @version      3.7
-// @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes.
+// @version      3.11
+// @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes. Ensures ad visibility.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -32,25 +32,18 @@
     }
   }
   function tryCloseTab(reason) {
-  console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
-
-  // Stop network activity and blank the page (works even when window.close() is blocked)
-  try { window.stop(); } catch {}
-  try {
-    document.documentElement.innerHTML = '';
-    document.title = 'Done';
-    document.documentElement.style.background = '#fff';
-  } catch {}
-
-  // Best-effort navigate to inert page
-  try { location.replace('about:blank'); } catch {}
-  setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
-
-  // If the tab was opened by script, these may actually close it
-  try { window.close(); } catch {}
-  setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
-}
-
+    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
+    try { window.stop(); } catch {}
+    try {
+      document.documentElement.innerHTML = '';
+      document.title = 'Done';
+      document.documentElement.style.background = '#fff';
+    } catch {}
+    try { location.replace('about:blank'); } catch {}
+    setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
+    try { window.close(); } catch {}
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+  }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
     if (n >= 13) {
@@ -59,10 +52,9 @@
   })();
 
   /******************************************************************
-   *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
+   *  A) IMAGE & AD CONTROL — allow Google Ads, block other images/iframes
    ******************************************************************/
   const HIDE_NON_AD_IFRAMES = true;
-
   const ALLOW_HOSTS = [
     /\.googlesyndication\.com$/i,
     /\.doubleclick\.net$/i,
@@ -287,6 +279,19 @@
     mo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
+  function ensureAdVisibility() {
+    const ads = document.querySelectorAll('.adsbygoogle');
+    ads.forEach(ad => {
+      const rect = ad.getBoundingClientRect();
+      if (rect.top >= 0 && rect.bottom <= window.innerHeight) {
+        ad.style.display = 'block';
+        if (!ad.getAttribute('data-ad-status') || ad.getAttribute('data-ad-status') === 'unfilled') {
+          (window.adsbygoogle = window.adsbygoogle || []).push({});
+        }
+      }
+    });
+  }
+
   stripExistingMedia();
   observeNewMedia();
   setupIframeHider();
@@ -309,13 +314,10 @@
   })();
 
   const START_DELAY_MS    = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
-  const SCROLL_DIST_MIN_PX = 700;
-  const SCROLL_DIST_MAX_PX = 1000;
-  const SCROLL_DUR_MIN_MS  = 4000;
-  const SCROLL_DUR_MAX_MS  = 6000;
-
+  const SCROLL_DIST_MIN_PX = 600, SCROLL_DIST_MAX_PX = 1200;
+  const SCROLL_DUR_MIN_MS  = 8000, SCROLL_DUR_MAX_MS  = 12000; // Slower for ad load
   const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // 3–4 cycles
-  const READ_PAUSE_MIN_MS  = 7000,  READ_PAUSE_MAX_MS  = 9000;
+  const READ_PAUSE_MIN_MS  = 3000,  READ_PAUSE_MAX_MS  = 7000; // 3-7s for ad view
   const BOTTOM_CONFIRM_MS  = 900;
 
   const firedPercents = new Set();
@@ -375,6 +377,7 @@
         if (atBottom()) { resolve(); return; }
         window.scrollBy(0, delta);
         lastY = targetY;
+        ensureAdVisibility(); // Ensure ads visible during scroll
         if (t < 1) requestAnimationFrame(frame);
         else resolve();
       })(performance.now());
@@ -383,7 +386,7 @@
 
   function doOneScrollCycle() {
     const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
-    const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
+    const dur  = randInt(SCROLL_DUR_MIN_MS, SCROLL_DUR_MAX_MS);
     return animateScrollByPx(dist, dur).then(function () {
       checkAndSendDepth();
       return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
@@ -402,7 +405,7 @@
         document.body.scrollHeight, document.documentElement.scrollHeight,
         document.body.offsetHeight, document.documentElement.offsetHeight,
         document.body.clientHeight, document.documentElement.clientHeight
-      );
+    );
       if (Math.abs(newHeight - initialHeight) < 4) cb();
     }, BOTTOM_CONFIRM_MS);
   }
@@ -410,8 +413,8 @@
   /******************************************************************
    *  C) Recent Posts ONLY — rotation & GA event
    ******************************************************************/
-  const RECENT_POOL_KEY = '__hs_recent_pool_v1';  // session-scoped
-  const RECENT_VISITED_KEY = '__hs_recent_visited_v1'; // session-scoped
+  const RECENT_POOL_KEY = '__hs_recent_pool_v1';
+  const RECENT_VISITED_KEY = '__hs_recent_visited_v1';
 
   function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
   function isGoodHref(href) {
@@ -422,20 +425,17 @@
     return true;
   }
 
-  // Collect recent posts anchors from common "Recent Posts" widgets (including your sample)
   function getRecentPostLinks() {
     const recentSelectors = [
       'aside.widget_recent_entries a.wp-block-latest-posts__post-title',
       'aside.widget_recent_entries .wp-block-latest-posts__list a',
       '.wp-block-latest-posts__list a.wp-block-latest-posts__post-title',
-      // fallback: any li under recent posts list
       'aside.widget_recent_entries .wp-block-latest-posts__list li > a'
     ];
     let links = [];
     recentSelectors.forEach(sel => {
       links = links.concat(Array.from(document.querySelectorAll(sel)));
     });
-    // de-duplicate by href and filter
     const seen = new Set();
     const filtered = [];
     for (const a of links) {
@@ -471,18 +471,12 @@
     const candidates = getRecentPostLinks().map(o => o.href);
     if (!candidates.length) return null;
     const visited = loadVisited();
-
-    // Filter out already visited in this tab session
     let pool = candidates.filter(h => !visited.has(h));
-
-    // If everything is visited, reset the pool (start a fresh rotation)
     if (!pool.length) {
       visited.clear();
       saveVisited(visited);
       pool = candidates.slice();
     }
-
-    // Random choice
     const target = pool[Math.floor(Math.random() * pool.length)];
     visited.add(target);
     saveVisited(visited);
@@ -497,9 +491,7 @@
       } else if (Array.isArray(window.dataLayer)) {
         window.dataLayer.push({ event: label, link_url: targetUrl, page_location: location.href, page_title: document.title });
       }
-    } catch (e) {
-      // no-op
-    }
+    } catch (e) {}
   }
 
   function navigateToRecentTarget() {
@@ -515,13 +507,13 @@
     sendGARecentClick(target, 'click');
     setTimeout(() => {
       beforeNavigateIncrement();
+      ensureAdVisibility(); // Final ad push before nav
       location.href = target;
     }, delay);
   }
 
   /******************************************************************
    *  D) Read More fallback (only if no Recent Posts found)
-   *     - Priority remains: RECENT POSTS > Read More
    ******************************************************************/
   function createFakeCursor() {
     const cursor = document.createElement('div');
@@ -572,8 +564,6 @@
     const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
     const cursor = createFakeCursor();
     moveCursorTo(cursor, 60, 60);
-
-    // small wander
     setTimeout(() => {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(() => {
@@ -581,6 +571,7 @@
         try { sendGARecentClick(new URL(url, location.href).href, 'click'); } catch {}
         console.log('[HumanScroll] Clicking Read More fallback:', url);
         beforeNavigateIncrement();
+        ensureAdVisibility(); // Ad push before nav
         try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
         catch (e) { link.click(); }
         removeCursor(cursor);
@@ -615,6 +606,7 @@
   setTimeout(function () {
     checkAndSendDepth();
     if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
+    ensureAdVisibility(); // Initial ad push
     runScrollsUntilBottomThenAct();
   }, START_DELAY_MS);
 
