@@ -227,13 +227,7 @@
     }
     return arr;
   }
-  /******************************************************************
-   *  B) SIMPLE AD RETRY
-   ******************************************************************/
-    /******************************************************************
-   *  B) AD FORCE LOAD - Force GPT ads to load
-   ******************************************************************/
-  
+
   function loadVisited() {
     try { return new Set(JSON.parse(sessionStorage.getItem(RECENT_VISITED_KEY) || '[]')); } catch { return new Set(); }
   }
@@ -262,54 +256,7 @@
     saveVisited(visited);
     return target;
   }
-  /******************************************************************
-   *  A) IMAGE CONTROL - DISABLED due to CSP conflicts
-   ******************************************************************/
-  console.log('[HumanScroll] Image blocking disabled - CSP handles image restrictions');
 
-  /******************************************************************
-   *  B) AD SLOT MONITORING - Just observe without interfering
-   ******************************************************************/
-    /******************************************************************
-   *  B) AD SLOT MONITORING - Enhanced version
-   ******************************************************************/
-  (function monitorAdSlots() {
-    console.log('[AdMonitor] Monitoring ad slots - CSP may block some ads');
-    
-    function checkAdSlots() {
-      const adContainers = document.querySelectorAll('[id*="gpt-"], [id*="ad-"], [class*="ad-"], [id*="div-gpt-"]');
-      console.log('[AdMonitor] Found', adContainers.length, 'ad containers');
-      
-      adContainers.forEach(container => {
-        const hasContent = container.innerHTML.trim() !== '';
-        const hasHeight = container.offsetHeight > 10;
-        const isVisible = !container.hidden && container.style.display !== 'none';
-        console.log('[AdMonitor]', container.id || '(no id)', 
-                   '- Content:', hasContent, 
-                   '- Height:', hasHeight,
-                   '- Visible:', isVisible,
-                   '- HTML:', container.innerHTML.length + ' chars');
-      });
-      
-      // Enhanced GPT checking with retry
-      if (window.googletag && googletag.apiReady) {
-        console.log('[AdMonitor] GPT API is ready');
-        const slots = googletag.pubads().getSlots();
-        console.log('[AdMonitor] GPT slots registered:', slots.length);
-        slots.forEach(slot => {
-          console.log('[AdMonitor] GPT Slot:', slot.getSlotElementId(), 
-                     '- Size:', slot.getSizes(), 
-                     '- Ad Unit:', slot.getAdUnitPath());
-        });
-      } else {
-        console.log('[AdMonitor] GPT API not ready, will retry in 2s...');
-        setTimeout(checkAdSlots, 2000); // Retry once
-      }
-    }
-    
-    // Initial check
-    setTimeout(checkAdSlots, 3000);
-  })();
   function sendGARecentClick(targetUrl, label) {
     label = label || 'click';
     try {
