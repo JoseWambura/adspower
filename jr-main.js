@@ -170,6 +170,7 @@
       s.removeAttribute('sizes');
     });
   }
+  
   function observeNewMedia() {
     const mo = new MutationObserver(muts => {
       for (const m of muts) {
@@ -274,20 +275,25 @@
   }
 
   function ensureAdXVisibility() {
-    const adSlots = document.querySelectorAll('div[id^="google_ads_iframe_"]');
-    adSlots.forEach(slot => {
-      const rect = slot.getBoundingClientRect();
-      if (rect.top >= 0 && rect.bottom <= window.innerHeight) {
+  const adSlots = document.querySelectorAll('div[id^="google_ads_iframe_"], #gpt-passback4');
+  adSlots.forEach(slot => {
+    const rect = slot.getBoundingClientRect();
+    if (rect.top >= -200 && rect.bottom <= window.innerHeight + 200) {
+      if (!slot.dataset.adxLoaded) {
+        const start = performance.now();
         slot.style.display = 'block';
-        if (!slot.dataset.adxLoaded) {
-          slot.dataset.adxLoaded = '1';
-          if (typeof googletag !== 'undefined' && googletag.pubads) {
-            googletag.pubads().refresh([googletag.defineSlot('/YOUR_AD_UNIT', [300, 250], slot.id)]);
+        setTimeout(() => {
+          if (performance.now() - start < 1000 && !slot.querySelector('iframe')) { // Retry if no iframe in 1s
+            if (typeof googletag !== 'undefined' && googletag.pubads) {
+              googletag.pubads().refresh([googletag.defineSlot('/146704394/www.jrsports.click/www.jrsports.click_billboard', [970, 250], slot.id)]);
+            }
           }
-        }
+          slot.dataset.adxLoaded = '1';
+        }, 500);
       }
-    });
-  }
+    }
+  });
+}
 
   function logEngagementTime() {
     let startTime = performance.now();
