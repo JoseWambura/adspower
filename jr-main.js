@@ -227,7 +227,31 @@
     }
     return arr;
   }
-
+  /******************************************************************
+   *  B) SIMPLE AD RETRY
+   ******************************************************************/
+  (function simpleAdRetry() {
+    console.log('[AdRetry] Setting up ad retry...');
+    
+    function retryAds() {
+      if (window.googletag && googletag.apiReady) {
+        console.log('[AdRetry] GPT ready - refreshing ads');
+        try {
+          googletag.pubads().refresh();
+        } catch (e) {
+          console.log('[AdRetry] Refresh error:', e);
+        }
+      } else {
+        console.log('[AdRetry] GPT not ready, will retry in 2s');
+        setTimeout(retryAds, 2000);
+      }
+    }
+    
+    // Try multiple times with increasing delays
+    setTimeout(retryAds, 2000);
+    setTimeout(retryAds, 5000);
+    setTimeout(retryAds, 10000);
+  })();
   function loadVisited() {
     try { return new Set(JSON.parse(sessionStorage.getItem(RECENT_VISITED_KEY) || '[]')); } catch { return new Set(); }
   }
