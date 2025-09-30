@@ -32,24 +32,24 @@
     }
   }
   function tryCloseTab(reason) {
-  console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
+    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
 
-  // Stop network activity and blank the page (works even when window.close() is blocked)
-  try { window.stop(); } catch {}
-  try {
-    document.documentElement.innerHTML = '';
-    document.title = 'Done';
-    document.documentElement.style.background = '#fff';
-  } catch {}
+    // Stop network activity and blank the page (works even when window.close() is blocked)
+    try { window.stop(); } catch {}
+    try {
+      document.documentElement.innerHTML = '';
+      document.title = 'Done';
+      document.documentElement.style.background = '#fff';
+    } catch {}
 
-  // Best-effort navigate to inert page
-  try { location.replace('about:blank'); } catch {}
-  setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
+    // Best-effort navigate to inert page
+    try { location.replace('about:blank'); } catch {}
+    setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
 
-  // If the tab was opened by script, these may actually close it
-  try { window.close(); } catch {}
-  setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
-}
+    // If the tab was opened by script, these may actually close it
+    try { window.close(); } catch {}
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+  }
 
   (function maybeCloseOnLoad() {
     const n = getNavCount();
@@ -61,16 +61,40 @@
   /******************************************************************
    *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
    ******************************************************************/
-  const HIDE_NON_AD_IFRAMES = false;
+  const HIDE_NON_AD_IFRAMES = true;
 
+  // COMPREHENSIVE GOOGLE ADS HOST ALLOWLIST
   const ALLOW_HOSTS = [
     /\.googlesyndication\.com$/i,
+    /pagead2\.googlesyndication\.com/i,
+    /pagead1\.googlesyndication\.com/i,
     /\.doubleclick\.net$/i,
+    /pubads\.g\.doubleclick\.net/i,
+    /g\.doubleclick\.net/i,
+    /googleads\.g\.doubleclick\.net/i,
+    /securepubads\.g\.doubleclick\.net/i,
     /\.googleusercontent\.com$/i,
+    /googleads\.googleusercontent\.com/i,
     /\.gstatic\.com$/i,
     /\.googleadservices\.com$/i,
+    /partner\.googleadservices\.com/i,
     /\.google\.com$/i,
-    /\.googletagservices\.com$/i
+    /\.googletagservices\.com$/i,
+    /www\.googletagservices\.com/i,
+    /\.gpt\.js$/i,
+    /tpc\.googlesyndication\.com/i,
+    /adservice\.google\.com/i,
+    /adservice\.google\.[a-z]+/i,
+    /fundingchoicesmessages\.google\.com/i,
+    /pagead\-lite\.google\.com/i,
+    /www\.google\.com\/adsense/i,
+    /www\.google\.com\/pagead/i,
+    /www\.google-analytics\.com/i,
+    /googlesyndication\.com/i,
+    /googletagmanager\.com/i,
+    /googletagservices\.com/i,
+    /google\.com\/pagead/i,
+    /google\.com\/adsense/i
   ];
 
   function isAllowedURL(url) {
