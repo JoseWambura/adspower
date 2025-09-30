@@ -264,17 +264,11 @@
   /******************************************************************
    *  B) AD SLOT MONITORING - Just observe without interfering
    ******************************************************************/
+    /******************************************************************
+   *  B) AD SLOT MONITORING - Enhanced version
+   ******************************************************************/
   (function monitorAdSlots() {
     console.log('[AdMonitor] Monitoring ad slots - CSP may block some ads');
-    
-    // Monitor after DOM is ready
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
-        setTimeout(checkAdSlots, 3000);
-      });
-    } else {
-      setTimeout(checkAdSlots, 3000);
-    }
     
     function checkAdSlots() {
       const adContainers = document.querySelectorAll('[id*="gpt-"], [id*="ad-"], [class*="ad-"], [id*="div-gpt-"]');
@@ -284,21 +278,31 @@
         const hasContent = container.innerHTML.trim() !== '';
         const hasHeight = container.offsetHeight > 10;
         const isVisible = !container.hidden && container.style.display !== 'none';
-        console.log('[AdMonitor] Container', container.id, 
-                   '- Has content:', hasContent, 
-                   '- Has height:', hasHeight,
-                   '- Visible:', isVisible);
+        console.log('[AdMonitor]', container.id || '(no id)', 
+                   '- Content:', hasContent, 
+                   '- Height:', hasHeight,
+                   '- Visible:', isVisible,
+                   '- HTML:', container.innerHTML.length + ' chars');
       });
       
-      // Also check for GPT API
+      // Enhanced GPT checking with retry
       if (window.googletag && googletag.apiReady) {
         console.log('[AdMonitor] GPT API is ready');
         const slots = googletag.pubads().getSlots();
         console.log('[AdMonitor] GPT slots registered:', slots.length);
+        slots.forEach(slot => {
+          console.log('[AdMonitor] GPT Slot:', slot.getSlotElementId(), 
+                     '- Size:', slot.getSizes(), 
+                     '- Ad Unit:', slot.getAdUnitPath());
+        });
       } else {
-        console.log('[AdMonitor] GPT API not ready or not available');
+        console.log('[AdMonitor] GPT API not ready, will retry in 2s...');
+        setTimeout(checkAdSlots, 2000); // Retry once
       }
     }
+    
+    // Initial check
+    setTimeout(checkAdSlots, 3000);
   })();
   function sendGARecentClick(targetUrl, label) {
     label = label || 'click';
