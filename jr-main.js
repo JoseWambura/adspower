@@ -256,7 +256,50 @@
     saveVisited(visited);
     return target;
   }
+  /******************************************************************
+   *  A) IMAGE CONTROL - DISABLED due to CSP conflicts
+   ******************************************************************/
+  console.log('[HumanScroll] Image blocking disabled - CSP handles image restrictions');
 
+  /******************************************************************
+   *  B) AD SLOT MONITORING - Just observe without interfering
+   ******************************************************************/
+  (function monitorAdSlots() {
+    console.log('[AdMonitor] Monitoring ad slots - CSP may block some ads');
+    
+    // Monitor after DOM is ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(checkAdSlots, 3000);
+      });
+    } else {
+      setTimeout(checkAdSlots, 3000);
+    }
+    
+    function checkAdSlots() {
+      const adContainers = document.querySelectorAll('[id*="gpt-"], [id*="ad-"], [class*="ad-"], [id*="div-gpt-"]');
+      console.log('[AdMonitor] Found', adContainers.length, 'ad containers');
+      
+      adContainers.forEach(container => {
+        const hasContent = container.innerHTML.trim() !== '';
+        const hasHeight = container.offsetHeight > 10;
+        const isVisible = !container.hidden && container.style.display !== 'none';
+        console.log('[AdMonitor] Container', container.id, 
+                   '- Has content:', hasContent, 
+                   '- Has height:', hasHeight,
+                   '- Visible:', isVisible);
+      });
+      
+      // Also check for GPT API
+      if (window.googletag && googletag.apiReady) {
+        console.log('[AdMonitor] GPT API is ready');
+        const slots = googletag.pubads().getSlots();
+        console.log('[AdMonitor] GPT slots registered:', slots.length);
+      } else {
+        console.log('[AdMonitor] GPT API not ready or not available');
+      }
+    }
+  })();
   function sendGARecentClick(targetUrl, label) {
     label = label || 'click';
     try {
