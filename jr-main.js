@@ -610,9 +610,12 @@
    *  F) Kickoff
    ******************************************************************/
   setTimeout(function () {
-    checkAndSendDepth();
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
-    runScrollsUntilBottomThenAct();
-  }, START_DELAY_MS);
+  checkAndSendDepth();
+  if (getNavCount() >= 13) {
+    tryCloseTab('limit reached before scrolling');
+    return;
+  }
+  runScrollsUntilBottomThenAct();
+}, START_DELAY_MS);
 
 })();
