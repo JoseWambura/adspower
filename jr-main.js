@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (+ Recent Posts Random Nav, Close @13)
+// @name         JR Sports: Block Images (except Google Ads) + Human-like Scroll (600–900px @ 7.2–12s) [No-Homepage/Search-Clicks, Prefer Tags, Close @13]
 // @namespace    http://tampermonkey.net/
-// @version      3.7
-// @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes.
+// @version      3.4
+// @description  Blocks normal images on jrsports.click (allows AdSense) + human scroll (4–5 cycles, must reach bottom) then click internal link (exclude homepage & search, prefer tags). Tracks 13 navigations in this tab and tries to close.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -22,44 +22,25 @@
   function setNavCount(n) {
     try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {}
   }
-  function beforeNavigateIncrement() {
-    const n = getNavCount() + 1;
-    setNavCount(n);
-    if (n >= 13) {
-      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
-    } else {
-      console.log('[HumanScroll] Navigation count =', n);
-    }
-  }
   function tryCloseTab(reason) {
-  console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
-
-  // Stop network activity and blank the page (works even when window.close() is blocked)
-  try { window.stop(); } catch {}
-  try {
-    document.documentElement.innerHTML = '';
-    document.title = 'Done';
-    document.documentElement.style.background = '#fff';
-  } catch {}
-
-  // Best-effort navigate to inert page
-  try { location.replace('about:blank'); } catch {}
-  setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
-
-  // If the tab was opened by script, these may actually close it
-  try { window.close(); } catch {}
-  setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
-}
-
+    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
+    window.close();
+    setTimeout(() => {
+      try { window.open('', '_self'); window.close(); } catch {}
+    }, 150);
+    setTimeout(() => {
+      try { location.replace('about:blank'); } catch {}
+    }, 350);
+  }
   (function maybeCloseOnLoad() {
     const n = getNavCount();
-    if (n >= 13) {
-      setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
+    if (n >= 10) {
+      setTimeout(() => tryCloseTab('limit reached on load (>=10)'), 1200);
     }
   })();
 
   /******************************************************************
-   *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
+   *  A) IMAGE CONTROL (TOP PAGE ONLY) — allow Google Ads, block rest
    ******************************************************************/
   const HIDE_NON_AD_IFRAMES = true;
 
@@ -290,33 +271,28 @@
   stripExistingMedia();
   observeNewMedia();
   setupIframeHider();
-  console.log('[ImgBlock] Active. Allowed image hosts:', ALLOW_HOSTS.map(r => r.source).join(', '));
+  console.log('[ImgBlock] Active (top page). Allowed image hosts:', ALLOW_HOSTS.map(r => r.source).join(', '));
 
   /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER
+   *  B) HUMAN-LIKE SCROLLER (starts later; image-block safe)
    ******************************************************************/
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
-    try {
-      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
-      sessionStorage.setItem('pv_count', String(pv));
-      window.__pageviews_in_tab = pv;
-      console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
-    } catch (e) {
-      console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
-      window.__pageviews_in_tab = 1;
-    }
+    try { const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1); sessionStorage.setItem('pv_count', String(pv)); window.__pageviews_in_tab = pv; console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.'); }
+    catch (e) { console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.'); window.__pageviews_in_tab = 1; }
   })();
 
-  const START_DELAY_MS    = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
-  const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 5000;
-  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // 3–4 cycles
-  const READ_PAUSE_MIN_MS  = 4000,  READ_PAUSE_MAX_MS  = 5000;
-  const BOTTOM_CONFIRM_MS  = 900;
+  const START_DELAY_MS = Math.floor(Math.random() * (20000 - 15000 + 1)) + 15000; // 15–20s
+  const SCROLL_DIST_MIN_PX = 600, SCROLL_DIST_MAX_PX = 900;
+  const SCROLL_DUR_MIN_MS  = 7200, SCROLL_DUR_MAX_MS  = 12000; // Increased by 20% from 6000–10000
+  const MIN_SCROLL_CYCLES  = Math.floor(Math.random() * (5 - 4 + 1)) + 4;
+  const READ_PAUSE_MIN_MS  = 500,  READ_PAUSE_MAX_MS  = 1500;
+  const BOTTOM_CONFIRM_MS  = 1500;
+  const PRE_CLICK_WAIT_MS  = 5000; // 10s wait before clicking link
 
-  const firedPercents = new Set();
-  const BREAKPOINTS = [25, 50, 75, 90, 100];
+  const CLICK_AFTER_MIN_MS = 1200, CLICK_AFTER_MAX_MS = 3200, SAME_HOST_ONLY = true;
+  const ENABLE_FORMS = true, FORM_SUBMIT_PROB = 0.60, FORM_CLICK_HOVER_MS = 350;
+  const WANDER_STEPS_MIN = 2, WANDER_STEPS_MAX = 4, WANDER_STEP_MS = 300, FINAL_HOVER_MS = 350;
 
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
   function atBottom(threshold) {
@@ -330,6 +306,54 @@
     );
     return y + view >= doc - threshold;
   }
+  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch (e) { return false; } }
+  function isGoodHref(href) {
+    if (!href) return false;
+    const s = href.trim().toLowerCase();
+    if (!s) return false;
+    if (s.startsWith('#') || s.startsWith('javascript:') || s.startsWith('mailto:') || s.startsWith('tel:')) return false;
+    return true;
+  }
+  function isDisplayed(el) { if (!el) return false; if (!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)) return false; const style = window.getComputedStyle(el); if (style.visibility === 'hidden' || style.display === 'none') return false; return true; }
+  function inViewport(el) { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight); }
+
+  function isHomeURL(u) {
+    try {
+      const url = new URL(u, location.href);
+      if (url.origin !== location.origin) return false;
+      const normalized = url.pathname.replace(/\/+$/, '/');
+      return normalized === '/';
+    } catch { return false; }
+  }
+  function isSearchURL(u) {
+    try {
+      const url = new URL(u, location.href);
+      if (url.origin !== location.origin) return false;
+      if (url.searchParams.has('s')) return true;
+      const p = url.pathname.toLowerCase();
+      if (p === '/search' || p.startsWith('/search/')) return true;
+      if (p.includes('/?s=')) return true;
+      if (p.includes('search')) return true;
+      if ((url.search || '').toLowerCase().includes('search')) return true;
+      return false;
+    } catch { return false; }
+  }
+  function isTagLink(a) {
+    try {
+      if (!a) return false;
+      if (a.rel && String(a.rel).toLowerCase().split(/\s+/).includes('tag')) return true;
+      if (a.className && /\btag\b/i.test(a.className)) return true;
+      const href = a.getAttribute('href') || a.href || '';
+      const url = new URL(href, location.href);
+      if (url.origin === location.origin && /\/tag\/[^/]/i.test(url.pathname)) return true;
+      const txt = (a.innerText || a.textContent || '').trim().toLowerCase();
+      if (txt && (txt.startsWith('#') || txt.includes('tag'))) return true;
+    } catch {}
+    return false;
+  }
+
+  const firedPercents = new Set();
+  const BREAKPOINTS = [25, 50, 75, 90, 100];
   function getPercentScrolled() {
     const y = window.pageYOffset || document.documentElement.scrollTop || 0;
     const view = window.innerHeight || document.documentElement.clientHeight || 0;
@@ -346,16 +370,215 @@
     if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent }); }
     else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title }); }
   }
-  function checkAndSendDepth() {
-    const pct = getPercentScrolled();
-    for (let i = 0; i < BREAKPOINTS.length; i++) {
-      if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
+  function checkAndSendDepth() { const pct = getPercentScrolled(); for (let i = 0; i < BREAKPOINTS.length; i++) { if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]); } }
+  window.addEventListener('scroll', function () { if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t); checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth); }, { passive: true });
+
+  function getAllCandidateLinks() {
+    const links = Array.from(document.querySelectorAll('a[href]'));
+    return links.filter(a => {
+      const href = a.getAttribute('href') || '';
+      if (!isGoodHref(href)) return false;
+      if (SAME_HOST_ONLY && !sameHost(a.href)) return false;
+      if (isHomeURL(a.href)) return false;
+      if (isSearchURL(a.href)) return false;
+      return true;
+    });
+  }
+
+  function pickRandomLink() {
+    const all = getAllCandidateLinks();
+    if (!all.length) return null;
+    const tags = all.filter(isTagLink);
+    const pool = tags.length ? tags : all;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function logAllLinks() {
+    const raw = Array.from(document.querySelectorAll('a'));
+    const mapped = raw.map((a, i) => ({
+      index: i,
+      text: (a.innerText || a.textContent || '').trim().slice(0, 120),
+      href: a.href || a.getAttribute('href') || '',
+      isTag: isTagLink(a),
+      isSearch: isSearchURL(a.href),
+      isHome: isHomeURL(a.href)
+    }));
+    console.log('[HumanScroll] Found', mapped.length, 'links (with flags).');
+    if (console.table) console.table(mapped);
+    return mapped;
+  }
+
+  function createFakeCursor() {
+    const cursor = document.createElement('div');
+    cursor.style.position = 'fixed';
+    cursor.style.top = '0px';
+    cursor.style.left = '0px';
+    cursor.style.width = '14px';
+    cursor.style.height = '14px';
+    cursor.style.border = '2px solid #333';
+    cursor.style.borderRadius = '50%';
+    cursor.style.background = 'rgba(255,255,255,0.85)';
+    cursor.style.zIndex = '999999';
+    cursor.style.pointerEvents = 'none';
+    cursor.style.transition = 'top 0.25s linear, left 0.25s linear';
+    document.body.appendChild(cursor);
+    return cursor;
+  }
+  function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
+  function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
+  function cursorWander(cursor, steps, cb) {
+    steps = Math.max(0, steps|0);
+    let i = 0;
+    (function step() {
+      if (i >= steps) { cb && cb(); return; }
+      i++;
+      const x = randInt(30, Math.max(60, window.innerWidth - 30));
+      const y = randInt(30, Math.max(60, window.innerHeight - 30));
+      moveCursorTo(cursor, x, y);
+      setTimeout(step, WANDER_STEP_MS);
+    })();
+  }
+
+  function beforeNavigateIncrement() {
+    const n = getNavCount() + 1;
+    setNavCount(n);
+    if (n >= 13) {
+      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
+    } else {
+      console.log('[HumanScroll] Navigation count =', n);
     }
   }
-  window.addEventListener('scroll', function () {
-    if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
-    checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
-  }, { passive: true });
+
+  function clickWithCursorFlow(link) {
+    const rect = link.getBoundingClientRect();
+    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
+    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
+    const cursor = createFakeCursor();
+    moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
+    const wanderSteps = randInt(WANDER_STEPS_MIN, WANDER_STEPS_MAX);
+    cursorWander(cursor, wanderSteps, function () {
+      moveCursorTo(cursor, targetX, targetY);
+      setTimeout(function () {
+        console.log('[HumanScroll] Waiting 10s before clicking:', link.href);
+        setTimeout(function () {
+          console.log('[HumanScroll] Clicking:', link.href);
+          beforeNavigateIncrement();
+          try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
+          catch (e) { link.click(); }
+          removeCursor(cursor);
+        }, PRE_CLICK_WAIT_MS);
+      }, FINAL_HOVER_MS);
+    });
+  }
+
+  function isSafeForm(form) {
+    const act = form.getAttribute('action') || '';
+    try { if (act) { if (!sameHost(new URL(act, location.href).href)) return false; } } catch (e) { return false; }
+    const text = (form.innerText || '').toLowerCase();
+    if (text.includes('logout') || text.includes('delete') || text.includes('unsubscribe')) return false;
+    if (form.querySelector('input[type="password"], input[name*="pass"], input[id*="pass"]')) return false;
+    if (!findSubmitButton(form)) return false;
+    return true;
+  }
+  function getCandidateForms() { return Array.from(document.querySelectorAll('form')).filter(isSafeForm); }
+  function findSubmitButton(form) {
+    return form.querySelector('button[type="submit"], input[type="submit"], button:not([type]), input[type="button"][name="submit"], input[type="image"]');
+  }
+  function fillInput(el) {
+    const name = (el.name || el.id || '').toLowerCase();
+    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+    if (el.type === 'email' || name.includes('email')) el.value = 'user' + randInt(1000,9999) + '@example.com';
+    else if (el.type === 'tel' || name.includes('phone')) el.value = '+255' + randInt(600000000, 799999999);
+    else if (el.type === 'number') el.value = randInt(1, 100);
+    else if (name.includes('name')) el.value = 'John Doe';
+    else if (name.includes('city')) el.value = 'Dar es Salaam';
+    else if (name.includes('country')) el.value = 'Tanzania';
+    else if (el.type === 'url') el.value = 'https://example.com';
+    else if (ph.includes('comment') || ph.includes('message') || ph.includes('feedback') || el.tagName === 'TEXTAREA') el.value = 'Just checking this out. Looks good!';
+    else el.value = (el.tagName === 'TEXTAREA') ? 'Hello!' : 'Sample';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  function fillFormFields(form) {
+    form.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], textarea').forEach(fillInput);
+    form.querySelectorAll('select').forEach(function (sel) {
+      const opt = Array.from(sel.options).find(o => o.value && o.value.trim() !== '');
+      if (opt) sel.value = opt.value;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    form.querySelectorAll('input[type="checkbox"]').forEach(function (c) {
+      if (Math.random() < 0.35) { c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    const radiosByName = {};
+    form.querySelectorAll('input[type="radio"]').forEach(function (r) {
+      (radiosByName[r.name] = radiosByName[r.name] || []).push(r);
+    });
+    Object.keys(radiosByName).forEach(function (n) {
+      const g = radiosByName[n], pick = g[randInt(0, g.length - 1)];
+      if (pick) { pick.checked = true; pick.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+  }
+  function submitFormWithCursor(form) {
+    const btn = findSubmitButton(form) || form;
+    try { btn.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    const rect = btn.getBoundingClientRect();
+    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
+    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
+    const cursor = createFakeCursor();
+    moveCursorTo(cursor, randInt(30, 200), randInt(30, 200));
+    const steps = randInt(WANDER_STEPS_MIN, WANDER_STEPS_MAX);
+    cursorWander(cursor, steps, function () {
+      moveCursorTo(cursor, targetX, targetY);
+      setTimeout(function () {
+        console.log('[HumanScroll] Submitting form…');
+        beforeNavigateIncrement();
+        if (btn !== form) {
+          try { btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
+          catch (e) { btn.click(); }
+        } else {
+          form.requestSubmit ? form.requestSubmit() : form.submit();
+        }
+        removeCursor(cursor);
+      }, FORM_CLICK_HOVER_MS);
+    });
+  }
+
+  function tryFormFlowOrFallbackToLink() {
+    if (getNavCount() >= 13) { tryCloseTab('limit reached before action'); return; }
+    if (ENABLE_FORMS && Math.random() < FORM_SUBMIT_PROB) {
+      const forms = getCandidateForms();
+      if (forms.length) {
+        const form = forms[randInt(0, forms.length - 1)];
+        console.log('[HumanScroll] Chose FORM (40% path). Filling & submitting:', form);
+        try { form.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+        setTimeout(function () { fillFormFields(form); submitFormWithCursor(form); }, randInt(700, 1500));
+        return;
+      } else { console.log('[HumanScroll] No safe forms found. Falling back to link click.'); }
+    }
+    const link = pickRandomLink();
+    if (!link) { console.warn('[HumanScroll] No suitable link to click.'); return; }
+    scrollToLinkThenClick(link);
+  }
+
+  function scrollToLinkThenClick(link) {
+    try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    catch (e) { link.scrollIntoView(true); }
+    setTimeout(function () { checkAndSendDepth(); }, 250);
+    const wait = randInt(CLICK_AFTER_MIN_MS, CLICK_AFTER_MAX_MS);
+    setTimeout(function () {
+      if (!isDisplayed(link)) {
+        console.warn('[HumanScroll] Picked link isn’t displayed. Repicking…');
+        const alt = pickRandomLink();
+        if (alt && alt !== link) return scrollToLinkThenClick(alt);
+        return;
+      }
+      if (!inViewport(link)) {
+        try { link.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+        return setTimeout(function () { clickWithCursorFlow(link); }, randInt(400, 900));
+      }
+      clickWithCursorFlow(link);
+    }, wait);
+  }
 
   function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
   function animateScrollByPx(totalPx, durationMs) {
@@ -377,7 +600,6 @@
       })(performance.now());
     });
   }
-
   function doOneScrollCycle() {
     const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
     const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
@@ -386,7 +608,6 @@
       return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
     });
   }
-
   function confirmBottomStable(cb) {
     const initialHeight = Math.max(
       document.body.scrollHeight, document.documentElement.scrollHeight,
@@ -403,191 +624,6 @@
       if (Math.abs(newHeight - initialHeight) < 4) cb();
     }, BOTTOM_CONFIRM_MS);
   }
-
-  /******************************************************************
-   *  C) Recent Posts ONLY — rotation & GA event
-   ******************************************************************/
-  const RECENT_POOL_KEY = '__hs_recent_pool_v1';  // session-scoped
-  const RECENT_VISITED_KEY = '__hs_recent_visited_v1'; // session-scoped
-
-  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
-  function isGoodHref(href) {
-    if (!href) return false;
-    const s = href.trim().toLowerCase();
-    if (!s) return false;
-    if (s.startsWith('#') || s.startsWith('javascript:') || s.startsWith('mailto:') || s.startsWith('tel:')) return false;
-    return true;
-  }
-
-  // Collect recent posts anchors from common "Recent Posts" widgets (including your sample)
-  function getRecentPostLinks() {
-    const recentSelectors = [
-      'aside.widget_recent_entries a.wp-block-latest-posts__post-title',
-      'aside.widget_recent_entries .wp-block-latest-posts__list a',
-      '.wp-block-latest-posts__list a.wp-block-latest-posts__post-title',
-      // fallback: any li under recent posts list
-      'aside.widget_recent_entries .wp-block-latest-posts__list li > a'
-    ];
-    let links = [];
-    recentSelectors.forEach(sel => {
-      links = links.concat(Array.from(document.querySelectorAll(sel)));
-    });
-    // de-duplicate by href and filter
-    const seen = new Set();
-    const filtered = [];
-    for (const a of links) {
-      const href = a.getAttribute('href') || a.href || '';
-      if (!isGoodHref(href)) continue;
-      try {
-        const abs = new URL(href, location.href).href;
-        if (!sameHost(abs)) continue;
-        if (seen.has(abs)) continue;
-        seen.add(abs);
-        filtered.push({ el: a, href: abs, text: (a.textContent || '').trim() });
-      } catch {}
-    }
-    return filtered;
-  }
-
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-
-  function loadVisited() {
-    try { return new Set(JSON.parse(sessionStorage.getItem(RECENT_VISITED_KEY) || '[]')); } catch { return new Set(); }
-  }
-  function saveVisited(set) {
-    try { sessionStorage.setItem(RECENT_VISITED_KEY, JSON.stringify(Array.from(set))); } catch {}
-  }
-
-  function pickRecentTarget() {
-    const candidates = getRecentPostLinks().map(o => o.href);
-    if (!candidates.length) return null;
-    const visited = loadVisited();
-
-    // Filter out already visited in this tab session
-    let pool = candidates.filter(h => !visited.has(h));
-
-    // If everything is visited, reset the pool (start a fresh rotation)
-    if (!pool.length) {
-      visited.clear();
-      saveVisited(visited);
-      pool = candidates.slice();
-    }
-
-    // Random choice
-    const target = pool[Math.floor(Math.random() * pool.length)];
-    visited.add(target);
-    saveVisited(visited);
-    return target;
-  }
-
-  function sendGARecentClick(targetUrl, label) {
-    label = label || 'click';
-    try {
-      if (typeof window.gtag === 'function') {
-        window.gtag('event', label, { link_url: targetUrl, page_location: location.href, page_title: document.title });
-      } else if (Array.isArray(window.dataLayer)) {
-        window.dataLayer.push({ event: label, link_url: targetUrl, page_location: location.href, page_title: document.title });
-      }
-    } catch (e) {
-      // no-op
-    }
-  }
-
-  function navigateToRecentTarget() {
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before target nav'); return; }
-    const target = pickRecentTarget();
-    if (!target) {
-      console.warn('[HumanScroll] No Recent Posts found. Considering Read More fallback…');
-      tryClickReadMoreFallback();
-      return;
-    }
-    const delay = Math.floor(Math.random() * (1600 - 800 + 1)) + 800;
-    console.log('[HumanScroll] Recent post chosen:', target, '… navigating in ~', delay, 'ms');
-    sendGARecentClick(target, 'click');
-    setTimeout(() => {
-      beforeNavigateIncrement();
-      location.href = target;
-    }, delay);
-  }
-
-  /******************************************************************
-   *  D) Read More fallback (only if no Recent Posts found)
-   *     - Priority remains: RECENT POSTS > Read More
-   ******************************************************************/
-  function createFakeCursor() {
-    const cursor = document.createElement('div');
-    cursor.style.position = 'fixed';
-    cursor.style.top = '0px';
-    cursor.style.left = '0px';
-    cursor.style.width = '14px';
-    cursor.style.height = '14px';
-    cursor.style.border = '2px solid #333';
-    cursor.style.borderRadius = '50%';
-    cursor.style.background = 'rgba(255,255,255,0.85)';
-    cursor.style.zIndex = '999999';
-    cursor.style.pointerEvents = 'none';
-    cursor.style.transition = 'top 0.25s linear, left 0.25s linear';
-    document.body.appendChild(cursor);
-    return cursor;
-  }
-  function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
-  function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
-
-  function findReadMoreLinks() {
-    const all = Array.from(document.querySelectorAll('a[href]'));
-    const res = [];
-    for (const a of all) {
-      const t = (a.textContent || '').trim().toLowerCase();
-      const href = a.getAttribute('href') || '';
-      if (!isGoodHref(href)) continue;
-      if (t.includes('read more') || a.classList.contains('more-link') || /read-?more/i.test(href)) {
-        try {
-          const abs = new URL(href, location.href).href;
-          if (!sameHost(abs)) continue;
-          res.push(a);
-        } catch {}
-      }
-    }
-    return res;
-  }
-
-  function tryClickReadMoreFallback() {
-    const links = findReadMoreLinks();
-    if (!links.length) {
-      console.warn('[HumanScroll] No Read More links found. Staying on page.');
-      return;
-    }
-    const link = links[Math.floor(Math.random() * links.length)];
-    const rect = link.getBoundingClientRect();
-    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
-    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
-    const cursor = createFakeCursor();
-    moveCursorTo(cursor, 60, 60);
-
-    // small wander
-    setTimeout(() => {
-      moveCursorTo(cursor, targetX, targetY);
-      setTimeout(() => {
-        const url = link.getAttribute('href') || link.href || '';
-        try { sendGARecentClick(new URL(url, location.href).href, 'click'); } catch {}
-        console.log('[HumanScroll] Clicking Read More fallback:', url);
-        beforeNavigateIncrement();
-        try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-        catch (e) { link.click(); }
-        removeCursor(cursor);
-      }, 300);
-    }, 300);
-  }
-
-  /******************************************************************
-   *  E) Flow — scroll to bottom, then go to Random Recent Post (or Read More)
-   ******************************************************************/
   function runScrollsUntilBottomThenAct() {
     let cyclesDone = 0;
     (function loop() {
@@ -597,8 +633,9 @@
           if (atBottom() && cyclesDone >= MIN_SCROLL_CYCLES) {
             confirmBottomStable(function () {
               checkAndSendDepth();
-              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Going to a random Recent Post…');
-              navigateToRecentTarget();
+              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Deciding next action…');
+              logAllLinks();
+              tryFormFlowOrFallbackToLink();
             });
           } else { loop(); }
         });
@@ -606,16 +643,10 @@
     })();
   }
 
-  /******************************************************************
-   *  F) Kickoff
-   ******************************************************************/
   setTimeout(function () {
-  checkAndSendDepth();
-  if (getNavCount() >= 13) {
-    tryCloseTab('limit reached before scrolling');
-    return;
-  }
-  runScrollsUntilBottomThenAct();
-}, START_DELAY_MS);
+    checkAndSendDepth();
+    if (getNavCount() >= 10) { tryCloseTab('limit reached before scrolling'); return; }
+    runScrollsUntilBottomThenAct();
+  }, START_DELAY_MS);
 
 })();
