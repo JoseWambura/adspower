@@ -61,7 +61,7 @@
   /******************************************************************
    *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
    ******************************************************************/
-  const HIDE_NON_AD_IFRAMES = true;
+  const HIDE_NON_AD_IFRAMES = false;
 
   const ALLOW_HOSTS = [
     /\.googlesyndication\.com$/i,
