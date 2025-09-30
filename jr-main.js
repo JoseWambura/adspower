@@ -233,53 +233,7 @@
     /******************************************************************
    *  B) AD FORCE LOAD - Force GPT ads to load
    ******************************************************************/
-  (function forceAdLoad() {
-    console.log('[AdForce] Attempting to force ad loading...');
-    
-    function initializeGPT() {
-      if (window.googletag && googletag.apiReady) {
-        console.log('[AdForce] GPT API is ready, refreshing ads...');
-        
-        // Refresh all ads
-        try {
-          googletag.pubads().refresh();
-          console.log('[AdForce] All ads refreshed');
-        } catch (e) {
-          console.log('[AdForce] Refresh failed:', e);
-        }
-        
-        // Also try to force display specific containers
-        const gptContainers = ['gpt-passback2', 'gpt-passback3', 'gpt-passback4', 'gpt-rect1'];
-        gptContainers.forEach(containerId => {
-          const container = document.getElementById(containerId);
-          if (container && container.innerHTML.length < 100) {
-            console.log('[AdForce] Empty container:', containerId, '- attempting to force display');
-            // Make sure container is visible
-            container.style.display = 'block';
-            container.style.visibility = 'visible';
-            container.style.minHeight = '250px';
-          }
-        });
-        
-      } else {
-        console.log('[AdForce] GPT API not ready, attempting to initialize...');
-        
-        // Try to manually trigger GPT if it exists but isn't ready
-        if (window.googletag && googletag.cmd) {
-          googletag.cmd.push(function() {
-            googletag.pubads().refresh();
-            console.log('[AdForce] Manual GPT refresh triggered');
-          });
-        }
-        
-        // Retry in 3 seconds
-        setTimeout(initializeGPT, 3000);
-      }
-    }
-    
-    // Start the process
-    setTimeout(initializeGPT, 2000);
-  })();
+  
   function loadVisited() {
     try { return new Set(JSON.parse(sessionStorage.getItem(RECENT_VISITED_KEY) || '[]')); } catch { return new Set(); }
   }
