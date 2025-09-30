@@ -31,6 +31,17 @@
       console.log('[HumanScroll] Navigation count =', n);
     }
   }
+  setTimeout(function () {
+  checkAndSendDepth();
+  logEngagementTime();
+  if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
+  ensureAdXVisibility();
+  console.log('[Debug] Ad slots found:', document.querySelectorAll('div[id^="google_ads_iframe_"]').length);
+  runScrollsUntilBottomThenAct();
+}, START_DELAY_MS);
+
+
+  
   function tryCloseTab(reason) {
     console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
     try { window.stop(); } catch {}
