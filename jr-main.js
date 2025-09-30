@@ -61,7 +61,7 @@
   /******************************************************************
    *  A) IMAGE CONTROL — allow Google Ads, block other images/iframes
    ******************************************************************/
-  const HIDE_NON_AD_IFRAMES = true;
+  const HIDE_NON_AD_IFRAMES = false;
 
   // COMPREHENSIVE GOOGLE ADS HOST ALLOWLIST
   const ALLOW_HOSTS = [
