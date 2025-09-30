@@ -376,13 +376,52 @@
       } else { doOneScrollCycle().then(loop); }
     })();
   }
-
+  /******************************************************************
+   *  G) AD LOADING WAIT - Ensure ads load before scrolling
+   ******************************************************************/
+  function waitForAdsToLoad() {
+    return new Promise((resolve) => {
+      console.log('[AdWait] Waiting for ads to load...');
+      let checks = 0;
+      const maxChecks = 30; // 30 seconds max wait
+      
+      function checkAds() {
+        checks++;
+        
+        // Check if major ad containers have content
+        const mainAdContainers = document.querySelectorAll('#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1');
+        const loadedAds = Array.from(mainAdContainers).filter(container => {
+          return container.innerHTML.length > 500 && container.offsetHeight > 50;
+        });
+        
+        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded`);
+        
+        // If most ads are loaded OR we've waited long enough, proceed
+        if (loadedAds.length >= 2 || checks >= maxChecks) {
+          console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded after ${checks} seconds`);
+          resolve();
+        } else {
+          setTimeout(checkAds, 1000);
+        }
+      }
+      
+      checkAds();
+    });
+  }
   /******************************************************************
    *  F) Kickoff
    ******************************************************************/
-  setTimeout(function () {
+    /******************************************************************
+   *  F) Kickoff - Wait for ads then scroll
+   ******************************************************************/
+  setTimeout(async function () {
     checkAndSendDepth();
     if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
+    
+    // WAIT FOR ADS TO LOAD BEFORE SCROLLING
+    await waitForAdsToLoad();
+    
+    console.log('[HumanScroll] Starting human-like scrolling after ads loaded');
     runScrollsUntilBottomThenAct();
   }, START_DELAY_MS);
 
