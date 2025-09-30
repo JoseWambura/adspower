@@ -287,7 +287,9 @@
     mo.observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  
+  stripExistingMedia();
+  observeNewMedia();
+  setupIframeHider();
   console.log('[ImgBlock] Active. Allowed image hosts:', ALLOW_HOSTS.map(r => r.source).join(', '));
 
   /******************************************************************
