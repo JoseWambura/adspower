@@ -278,24 +278,34 @@
   }
 
   function ensureAdXVisibility() {
-  const adSlots = document.querySelectorAll('div[id^="google_ads_iframe_"], #gpt-passback4');
-  adSlots.forEach(slot => {
-    const rect = slot.getBoundingClientRect();
-    if (rect.top >= -200 && rect.bottom <= window.innerHeight + 200) {
-      if (!slot.dataset.adxLoaded) {
-        const start = performance.now();
-        slot.style.display = 'block';
-        setTimeout(() => {
-          if (performance.now() - start < 1000 && !slot.querySelector('iframe')) { // Retry if no iframe in 1s
-            if (typeof googletag !== 'undefined' && googletag.pubads) {
-              googletag.pubads().refresh([googletag.defineSlot('/146704394/www.jrsports.click/www.jrsports.click_billboard', [970, 250], slot.id)]);
-            }
-          }
-          slot.dataset.adxLoaded = '1';
-        }, 500);
-      }
+  function checkSlots() {
+    const adSlots = document.querySelectorAll('div[id^="google_ads_iframe_"], #gpt-passback4');
+    if (adSlots.length === 0) {
+      console.log('[Debug] No ad slots found yet, retrying in 1s...');
+      setTimeout(checkSlots, 1000);
+      return;
     }
-  });
+    adSlots.forEach(slot => {
+      const rect = slot.getBoundingClientRect();
+      if (rect.top >= -200 && rect.bottom <= window.innerHeight + 200) {
+        if (!slot.dataset.adxLoaded) {
+          const start = performance.now();
+          slot.style.display = 'block';
+          setTimeout(() => {
+            if (performance.now() - start < 1000 && !slot.querySelector('iframe')) {
+              if (typeof googletag !== 'undefined' && googletag.pubads) {
+                googletag.pubads().refresh([googletag.defineSlot('/146704394/www.jrsports.click/www.jrsports.click_billboard', [970, 250], slot.id)]);
+              } else {
+                console.error('[Debug] googletag not defined');
+              }
+            }
+            slot.dataset.adxLoaded = '1';
+          }, 500);
+        }
+      }
+    });
+  }
+  checkSlots(); // Initial call
 }
 
   function logEngagementTime() {
