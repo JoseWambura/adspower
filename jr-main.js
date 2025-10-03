@@ -1,8 +1,8 @@
-// ==UserScript==
-// @name         JR Sports: Human-like Scroll + Recent Posts Random Nav, Close @13
+dude you are genious.. this code is marvelous.. // ==UserScript==
+// @name         JR Sports: Human-like Scroll + GA Events + Cursor Hover (Ads Focus)
 // @namespace    http://tampermonkey.net/
-// @version      3.8
-// @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes.
+// @version      7.4
+// @description  Human-like scrolling with GA events (session_start, page_view, engaged_session, depth, clicks, exits) and fake cursor that wanders, hovers links, and pauses over ad slots.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -13,9 +13,46 @@
   'use strict';
 
   /******************************************************************
-   * 0) Navigation counter & auto-close after 13
+   * HELPERS
+   ******************************************************************/
+  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+  function fireEvent(action, { label = '', value = '' } = {}) {
+    const eventData = {
+      event_category: 'HumanScroll',
+      event_action: action,
+      event_label: label,
+      value: value
+    };
+    try {
+      if (typeof window.gtag === 'function') {
+        window.gtag('event', action, eventData);
+      } else if (Array.isArray(window.dataLayer)) {
+        window.dataLayer.push({ event: action, ...eventData });
+      }
+      // console.log('[GA Event]', action, eventData); // uncomment to debug
+    } catch (e) {
+      // console.log('[GA ERROR]', action, e);
+    }
+  }
+
+  /******************************************************************
+   * SESSION CONTROL (session_start once per tab)
+   ******************************************************************/
+  const SESSION_KEY = '__hs_session_started';
+  if (!sessionStorage.getItem(SESSION_KEY)) {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    fireEvent('session_start', { label: 'new session' });
+  }
+
+  // Always fire page_view on load
+  fireEvent('page_view', { label: location.pathname, value: document.title });
+
+  /******************************************************************
+   * NAVIGATION COUNTER (controls page progression/limit)
    ******************************************************************/
   const NAV_KEY = '__hs_nav_count';
+  const MAX_NAV_PAGES = randInt(6, 13);
+
   function getNavCount() {
     try { return parseInt(sessionStorage.getItem(NAV_KEY) || '0', 10) || 0; } catch { return 0; }
   }
@@ -25,403 +62,236 @@
   function beforeNavigateIncrement() {
     const n = getNavCount() + 1;
     setNavCount(n);
-    if (n >= 13) {
-      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
-    } else {
-      console.log('[HumanScroll] Navigation count =', n);
-    }
+    fireEvent('page_progress', { label: `page ${n}/${MAX_NAV_PAGES}` });
   }
   function tryCloseTab(reason) {
-    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
-
-    // Stop network activity and blank the page (works even when window.close() is blocked)
+    fireEvent('session_exit', { label: reason, value: getNavCount() });
+    removeFakeCursor(); // ensure cursor is cleaned up
     try { window.stop(); } catch {}
     try {
       document.documentElement.innerHTML = '';
       document.title = 'Done';
       document.documentElement.style.background = '#fff';
     } catch {}
-
-    // Best-effort navigate to inert page
     try { location.replace('about:blank'); } catch {}
-    setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
-
-    // If the tab was opened by script, these may actually close it
-    try { window.close(); } catch {}
-    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 200);
   }
 
-  (function maybeCloseOnLoad() {
-    const n = getNavCount();
-    if (n >= 13) {
-      setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
-    }
-  })();
-
   /******************************************************************
-   *  A) IMAGE CONTROL - DISABLED due to CSP conflicts
+   * SCROLL DEPTH + ENGAGED SESSION
    ******************************************************************/
-  console.log('[HumanScroll] Image blocking disabled - CSP handles image restrictions');
-
-  /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER
-   ******************************************************************/
-  (function () {
-    function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
-    try {
-      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
-      sessionStorage.setItem('pv_count', String(pv));
-      window.__pageviews_in_tab = pv;
-      console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
-    } catch (e) {
-      console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
-      window.__pageviews_in_tab = 1;
-    }
-  })();
-
-  const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 15–20s
-  const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 5000, SCROLL_DUR_MAX_MS  = 7000;
-  const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 6–7 cycles
-  const READ_PAUSE_MIN_MS  = 10000,  READ_PAUSE_MAX_MS  = 12000;
-  const BOTTOM_CONFIRM_MS  = 10000;
-
   const firedPercents = new Set();
   const BREAKPOINTS = [25, 50, 75, 90, 100];
+  let engagedFired = false;
+  const engagedTimer = setTimeout(() => checkEngagedSession(true), 10000); // >=10s
 
-  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-  function atBottom(threshold) {
-    threshold = threshold || 2;
-    const y = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    const view = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || 0;
-    const doc = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    return y + view >= doc - threshold;
-  }
   function getPercentScrolled() {
-    const y = window.pageYOffset || document.documentElement.scrollTop || 0;
-    const view = window.innerHeight || document.documentElement.clientHeight || 0;
-    const full = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
+    const y = window.scrollY || 0;
+    const view = window.innerHeight;
+    const full = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
     const pos = Math.min(full, y + view);
-    return Math.max(0, Math.min(100, Math.round((pos / full) * 100)));
-  }
-  function sendScrollDepth(percent) {
-    if (firedPercents.has(percent)) return; firedPercents.add(percent);
-    if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent }); }
-    else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title }); }
+    return Math.round((pos / full) * 100);
   }
   function checkAndSendDepth() {
     const pct = getPercentScrolled();
     for (let i = 0; i < BREAKPOINTS.length; i++) {
-      if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
+      if (pct >= BREAKPOINTS[i] && !firedPercents.has(BREAKPOINTS[i])) {
+        firedPercents.add(BREAKPOINTS[i]);
+        fireEvent('scroll_depth', { label: `${BREAKPOINTS[i]}%` });
+      }
     }
+    checkEngagedSession(false);
   }
-  window.addEventListener('scroll', function () {
+  window.addEventListener('scroll', () => {
     if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
     checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
   }, { passive: true });
 
-  function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+  function checkEngagedSession(fromTimer) {
+    if (engagedFired) return;
+    const scrolledPct = getPercentScrolled();
+    if (scrolledPct >= 50 && (fromTimer || performance.now() > 10000)) {
+      fireEvent('engaged_session', { label: `>=50% after ${Math.round(performance.now()/1000)}s` });
+      engagedFired = true;
+      clearTimeout(engagedTimer);
+    }
+  }
+
+  /******************************************************************
+   * SCROLL ENGINE (forward scroll cycles; pauses randomized)
+   ******************************************************************/
+  function easeInOutQuad(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+  function atBottom(th = 2) {
+    return window.scrollY + window.innerHeight >= document.body.scrollHeight - th;
+  }
   function animateScrollByPx(totalPx, durationMs) {
-    return new Promise(function (resolve) {
-      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+    return new Promise(resolve => {
+      const startY = window.scrollY || 0;
       const startT = performance.now();
-      let lastY  = startY;
+      let lastY = startY;
       (function frame(now) {
-        const elapsed  = now - startT;
-        const t        = Math.min(1, elapsed / durationMs);
+        const t = Math.min(1, (now - startT) / durationMs);
         const progress = easeInOutQuad(t);
-        const targetY  = startY + totalPx * progress;
-        const delta    = targetY - lastY;
-        if (atBottom()) { resolve(); return; }
+        const targetY = startY + totalPx * progress;
+        const delta = targetY - lastY;
         window.scrollBy(0, delta);
         lastY = targetY;
-        if (t < 1) requestAnimationFrame(frame);
-        else resolve();
+        if (t < 1) requestAnimationFrame(frame); else resolve();
       })(performance.now());
     });
   }
 
-  function doOneScrollCycle() {
-    const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
-    const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
-    return animateScrollByPx(dist, dur).then(function () {
-      checkAndSendDepth();
-      return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
-    });
-  }
+  async function doOneScrollCycle(cfg) {
+    const backscroll = Math.random() < 0.2; // 20% backscroll
+    const dist = randInt(800, 1200) * (backscroll ? -0.5 : 1);
+    const dur  = randInt(5000, 7000);
+    fireEvent('scroll_cycle', { label: backscroll ? 'backscroll' : 'forward' });
+    await animateScrollByPx(dist, dur);
+    checkAndSendDepth();
 
-  function confirmBottomStable(cb) {
-    const initialHeight = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    setTimeout(function () {
-      if (!atBottom()) return;
-      const newHeight = Math.max(
-        document.body.scrollHeight, document.documentElement.scrollHeight,
-        document.body.offsetHeight, document.documentElement.offsetHeight,
-        document.body.clientHeight, document.documentElement.clientHeight
-      );
-      if (Math.abs(newHeight - initialHeight) < 4) cb();
-    }, BOTTOM_CONFIRM_MS);
-  }
-
-  /******************************************************************
-   *  C) Recent Posts ONLY — rotation & GA event
-   ******************************************************************/
-  const RECENT_POOL_KEY = '__hs_recent_pool_v1';  // session-scoped
-  const RECENT_VISITED_KEY = '__hs_recent_visited_v1'; // session-scoped
-
-  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
-  function isGoodHref(href) {
-    if (!href) return false;
-    const s = href.trim().toLowerCase();
-    if (!s) return false;
-    if (s.startsWith('#') || s.startsWith('javascript:') || s.startsWith('mailto:') || s.startsWith('tel:')) return false;
-    return true;
-  }
-
-  // Collect recent posts anchors from common "Recent Posts" widgets (including your sample)
-  function getRecentPostLinks() {
-    const recentSelectors = [
-      'aside.widget_recent_entries a.wp-block-latest-posts__post-title',
-      'aside.widget_recent_entries .wp-block-latest-posts__list a',
-      '.wp-block-latest-posts__list a.wp-block-latest-posts__post-title',
-      // fallback: any li under recent posts list
-      'aside.widget_recent_entries .wp-block-latest-posts__list li > a'
-    ];
-    let links = [];
-    recentSelectors.forEach(sel => {
-      links = links.concat(Array.from(document.querySelectorAll(sel)));
-    });
-    // de-duplicate by href and filter
-    const seen = new Set();
-    const filtered = [];
-    for (const a of links) {
-      const href = a.getAttribute('href') || a.href || '';
-      if (!isGoodHref(href)) continue;
-      try {
-        const abs = new URL(href, location.href).href;
-        if (!sameHost(abs)) continue;
-        if (seen.has(abs)) continue;
-        seen.add(abs);
-        filtered.push({ el: a, href: abs, text: (a.textContent || '').trim() });
-      } catch {}
+    // 20% chance: idle pause (20–30s) to mimic reading/hover
+    if (Math.random() < 0.2) {
+      const idle = randInt(20000, 30000);
+      fireEvent('idle_pause', { label: 'pause', value: idle });
+      await new Promise(r => setTimeout(r, idle));
+    } else {
+      await new Promise(r => setTimeout(r, randInt(cfg.pauseMin, cfg.pauseMax)));
     }
-    return filtered;
   }
 
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
+  function randomTimingConfig() {
+    const m = Math.random();
+    if (m < 0.25) return { cycles: 3, pauseMin: 7000, pauseMax: 9000 };
+    if (m < 0.85) return { cycles: 4, pauseMin: 10000, pauseMax: 12000 };
+    return { cycles: 5, pauseMin: 12000, pauseMax: 15000 };
   }
 
-  function loadVisited() {
-    try { return new Set(JSON.parse(sessionStorage.getItem(RECENT_VISITED_KEY) || '[]')); } catch { return new Set(); }
-  }
-  function saveVisited(set) {
-    try { sessionStorage.setItem(RECENT_VISITED_KEY, JSON.stringify(Array.from(set))); } catch {}
-  }
-
-  function pickRecentTarget() {
-    const candidates = getRecentPostLinks().map(o => o.href);
-    if (!candidates.length) return null;
-    const visited = loadVisited();
-
-    // Filter out already visited in this tab session
-    let pool = candidates.filter(h => !visited.has(h));
-
-    // If everything is visited, reset the pool (start a fresh rotation)
-    if (!pool.length) {
-      visited.clear();
-      saveVisited(visited);
-      pool = candidates.slice();
-    }
-
-    // Random choice
-    const target = pool[Math.floor(Math.random() * pool.length)];
-    visited.add(target);
-    saveVisited(visited);
-    return target;
-  }
-
-  function sendGARecentClick(targetUrl, label) {
-    label = label || 'click';
-    try {
-      if (typeof window.gtag === 'function') {
-        window.gtag('event', label, { link_url: targetUrl, page_location: location.href, page_title: document.title });
-      } else if (Array.isArray(window.dataLayer)) {
-        window.dataLayer.push({ event: label, link_url: targetUrl, page_location: location.href, page_title: document.title });
+  function runScrollsUntilBottomThenAct() {
+    const cfg = randomTimingConfig();
+    let cycles = 0;
+    (function loop() {
+      if (cycles < cfg.cycles || !atBottom()) {
+        doOneScrollCycle(cfg).then(() => {
+          cycles++;
+          if (atBottom() && cycles >= cfg.cycles) {
+            fireEvent('page_end', { label: `cycles=${cycles}` });
+            setTimeout(() => navigateToRecentTarget(), 4000);
+          } else { loop(); }
+        });
       }
-    } catch (e) {
-      // no-op
-    }
+    })();
   }
 
   function navigateToRecentTarget() {
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before target nav'); return; }
-    const target = pickRecentTarget();
-    if (!target) {
-      console.warn('[HumanScroll] No Recent Posts found. Considering Read More fallback…');
-      tryClickReadMoreFallback();
-      return;
-    }
-    const delay = Math.floor(Math.random() * (1600 - 800 + 1)) + 800;
-    console.log('[HumanScroll] Recent post chosen:', target, '… navigating in ~', delay, 'ms');
-    sendGARecentClick(target, 'click');
-    setTimeout(() => {
-      beforeNavigateIncrement();
-      location.href = target;
-    }, delay);
+    const n = getNavCount();
+    if (n >= MAX_NAV_PAGES) return tryCloseTab('max pages');
+    if (Math.random() < 0.1 && n > 2) return tryCloseTab('random early exit');
+
+    const links = Array.from(document.querySelectorAll('.wp-block-latest-posts__list a'));
+    if (!links.length) return tryCloseTab('no posts');
+
+    const target = links[Math.floor(Math.random() * links.length)].href;
+    const delay  = randInt(500, 4000);
+    fireEvent('click_event', { label: target });
+    setTimeout(() => { beforeNavigateIncrement(); location.href = target; }, delay);
   }
 
   /******************************************************************
-   *  D) Read More fallback (only if no Recent Posts found)
-   *     - Priority remains: RECENT POSTS > Read More
+   * FAKE CURSOR + HOVER SIMULATION (with Ad Focus)
    ******************************************************************/
   function createFakeCursor() {
     const cursor = document.createElement('div');
+    cursor.id = '__hs_fake_cursor';
     cursor.style.position = 'fixed';
-    cursor.style.top = '0px';
-    cursor.style.left = '0px';
-    cursor.style.width = '14px';
-    cursor.style.height = '14px';
-    cursor.style.border = '2px solid #333';
+    cursor.style.top = '100px';
+    cursor.style.left = '100px';
+    cursor.style.width = '12px';
+    cursor.style.height = '12px';
     cursor.style.borderRadius = '50%';
-    cursor.style.background = 'rgba(255,255,255,0.85)';
+    cursor.style.background = 'rgba(0,0,0,0.5)';
     cursor.style.zIndex = '999999';
     cursor.style.pointerEvents = 'none';
-    cursor.style.transition = 'top 0.25s linear, left 0.25s linear';
+    cursor.style.transition = 'top 0.35s ease, left 0.35s ease';
     document.body.appendChild(cursor);
     return cursor;
   }
-  function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
-  function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
-
-  function findReadMoreLinks() {
-    const all = Array.from(document.querySelectorAll('a[href]'));
-    const res = [];
-    for (const a of all) {
-      const t = (a.textContent || '').trim().toLowerCase();
-      const href = a.getAttribute('href') || '';
-      if (!isGoodHref(href)) continue;
-      if (t.includes('read more') || a.classList.contains('more-link') || /read-?more/i.test(href)) {
-        try {
-          const abs = new URL(href, location.href).href;
-          if (!sameHost(abs)) continue;
-          res.push(a);
-        } catch {}
-      }
-    }
-    return res;
+  function removeFakeCursor() {
+    const c = document.getElementById('__hs_fake_cursor');
+    if (c) c.remove();
   }
+  function moveCursorRandom(cursor) {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const x = randInt(50, vw - 50);
+    const y = randInt(50, vh - 50);
+    cursor.style.left = x + 'px';
+    cursor.style.top  = y + 'px';
+  }
+  function simulateHover(cursor) {
+    const links = Array.from(document.querySelectorAll('a, button, img'))
+      .filter(el => el.offsetWidth > 30 && el.offsetHeight > 20);
+    if (!links.length) return;
 
-  function tryClickReadMoreFallback() {
-    const links = findReadMoreLinks();
-    if (!links.length) {
-      console.warn('[HumanScroll] No Read More links found. Staying on page.');
-      return;
-    }
-    const link = links[Math.floor(Math.random() * links.length)];
-    const rect = link.getBoundingClientRect();
-    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
-    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
+    const target = links[Math.floor(Math.random() * links.length)];
+    const rect   = target.getBoundingClientRect();
+    const x = rect.left + rect.width  / 2;
+    const y = rect.top  + rect.height / 2;
+
+    cursor.style.left = x + 'px';
+    cursor.style.top  = y + 'px';
+    fireEvent('hover_event', { label: target.href || target.tagName });
+  }
+  function focusOnAd(cursor) {
+    const adSelectors = ['#gpt-billboard', '#gpt-passback4', '#gpt-rect1', '#gpt-rect2', '#gpt-anchor'];
+    const ads = adSelectors.map(sel => document.querySelector(sel)).filter(Boolean);
+    if (!ads.length) return false;
+
+    const target = ads[Math.floor(Math.random() * ads.length)];
+    const rect   = target.getBoundingClientRect();
+    if (!rect || rect.width < 50 || rect.height < 50) return false;
+
+    const x = rect.left + rect.width  / 2;
+    const y = rect.top  + rect.height / 2;
+
+    cursor.style.left = x + 'px';
+    cursor.style.top  = y + 'px';
+    fireEvent('hover_event', { label: 'ad_focus_' + (target.id || 'slot') });
+
+    // Linger 2–4s over ads
+    setTimeout(() => {}, randInt(2000, 4000));
+    return true;
+  }
+  function startMouseSimulation() {
     const cursor = createFakeCursor();
-    moveCursorTo(cursor, 60, 60);
-
-    // small wander
-    setTimeout(() => {
-      moveCursorTo(cursor, targetX, targetY);
-      setTimeout(() => {
-        const url = link.getAttribute('href') || link.href || '';
-        try { sendGARecentClick(new URL(url, location.href).href, 'click'); } catch {}
-        console.log('[HumanScroll] Clicking Read More fallback:', url);
-        beforeNavigateIncrement();
-        try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-        catch (e) { link.click(); }
-        removeCursor(cursor);
-      }, 300);
-    }, 300);
-  }
-
-  /******************************************************************
-   *  E) Flow — scroll to bottom, then go to Random Recent Post (or Read More)
-   ******************************************************************/
-  function runScrollsUntilBottomThenAct() {
-    let cyclesDone = 0;
-    (function loop() {
-      if (cyclesDone < MIN_SCROLL_CYCLES || !atBottom()) {
-        doOneScrollCycle().then(function () {
-          cyclesDone++;
-          if (atBottom() && cyclesDone >= MIN_SCROLL_CYCLES) {
-            confirmBottomStable(function () {
-              checkAndSendDepth();
-              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Going to a random Recent Post…');
-              navigateToRecentTarget();
-            });
-          } else { loop(); }
-        });
-      } else { doOneScrollCycle().then(loop); }
-    })();
-  }
-  /******************************************************************
-   *  G) AD LOADING WAIT - Ensure ads load before scrolling
-   ******************************************************************/
-  function waitForAdsToLoad() {
-    return new Promise((resolve) => {
-      console.log('[AdWait] Waiting for ads to load...');
-      let checks = 0;
-      const maxChecks = 30; // 30 seconds max wait
-      
-      function checkAds() {
-        checks++;
-        
-        // Check if major ad containers have content
-        const mainAdContainers = document.querySelectorAll('#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1');
-        const loadedAds = Array.from(mainAdContainers).filter(container => {
-          return container.innerHTML.length > 500 && container.offsetHeight > 50;
-        });
-        
-        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded`);
-        
-        // If most ads are loaded OR we've waited long enough, proceed
-        if (loadedAds.length >= 2 || checks >= maxChecks) {
-          console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded after ${checks} seconds`);
-          resolve();
-        } else {
-          setTimeout(checkAds, 1000);
-        }
+    function loop() {
+      const chance = Math.random();
+      if (chance < 0.2) { // 20% focus on ads
+        if (!focusOnAd(cursor)) moveCursorRandom(cursor);
+      } else if (chance < 0.4) { // 20% hover links/images
+        simulateHover(cursor);
+      } else { // 60% wander randomly
+        moveCursorRandom(cursor);
       }
-      
-      checkAds();
-    });
+      setTimeout(loop, randInt(3000, 6000)); // every 3–6s
+    }
+    loop();
   }
+
   /******************************************************************
-   *  F) Kickoff
+   * START: delay, optional bounce, then begin scrolling + cursor sim
    ******************************************************************/
-    /******************************************************************
-   *  F) Kickoff - Wait for ads then scroll
-   ******************************************************************/
-  setTimeout(async function () {
-    checkAndSendDepth();
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
-    
-    // WAIT FOR ADS TO LOAD BEFORE SCROLLING
-    await waitForAdsToLoad();
-    
-    console.log('[HumanScroll] Starting human-like scrolling after ads loaded');
+  const START_DELAY_MS = randInt(10000, 15000);
+  setTimeout(() => {
+    if (getNavCount() >= MAX_NAV_PAGES) return tryCloseTab('already max');
+
+    // 3% instant bounce (2–5s after load)
+    if (Math.random() < 0.03) {
+      const d = randInt(2000, 5000);
+      fireEvent('instant_bounce', { label: 'bounce', value: d });
+      return setTimeout(() => tryCloseTab('instant bounce'), d);
+    }
+
+    fireEvent('scroll_start', { label: `delay ${START_DELAY_MS}ms` });
+    startMouseSimulation();       // << start the fake cursor + hovers (incl. ad focus)
     runScrollsUntilBottomThenAct();
   }, START_DELAY_MS);
 
