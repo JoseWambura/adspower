@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JR Sports: Human-like Scroll + GA Events + Cursor Hover (Ads Focus)
 // @namespace    http://tampermonkey.net/
-// @version      7.4
-// @description  Human-like scrolling with GA events (session_start, page_view, engaged_session, depth, clicks, exits) and fake cursor that wanders, hovers links, and pauses over ad slots.
+// @version      7.5
+// @description  Human-like scrolling with GA events (session_start, page_view, engaged_session, depth, clicks, exits) and fake cursor that wanders, hovers links, and pauses over ad slots (avoiding iframe access).
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -11,6 +11,12 @@
 
 (function () {
   'use strict';
+
+  // Exit if not top window (avoid iframe contexts)
+  if (window.top !== window.self) {
+    console.log('[HumanScroll] Running in iframe, exiting.');
+    return;
+  }
 
   /******************************************************************
    * HELPERS
@@ -66,7 +72,7 @@
   }
   function tryCloseTab(reason) {
     fireEvent('session_exit', { label: reason, value: getNavCount() });
-    removeFakeCursor(); // ensure cursor is cleaned up
+    removeFakeCursor();
     try { window.stop(); } catch {}
     try {
       document.documentElement.innerHTML = '';
@@ -197,7 +203,7 @@
   }
 
   /******************************************************************
-   * FAKE CURSOR + HOVER SIMULATION (with Ad Focus)
+   * FAKE CURSOR + HOVER SIMULATION (with Ad Focus on outer elements)
    ******************************************************************/
   function createFakeCursor() {
     const cursor = document.createElement('div');
@@ -212,7 +218,7 @@
     cursor.style.zIndex = '999999';
     cursor.style.pointerEvents = 'none';
     cursor.style.transition = 'top 0.35s ease, left 0.35s ease';
-    document.body.appendChild(cursor); // Ensure this is clean
+    document.body.appendChild(cursor);
     return cursor;
   }
   function removeFakeCursor() {
@@ -228,7 +234,7 @@
   }
   function simulateHover(cursor) {
     const links = Array.from(document.querySelectorAll('a, button, img'))
-      .filter(el => el.offsetWidth > 30 && el.offsetHeight > 20);
+      .filter(el => el.offsetWidth > 30 && el.offsetHeight > 20 && !el.closest('iframe'));
     if (!links.length) return;
 
     const target = links[Math.floor(Math.random() * links.length)];
@@ -247,7 +253,7 @@
 
     const target = ads[Math.floor(Math.random() * ads.length)];
     const rect   = target.getBoundingClientRect();
-    if (!rect || rect.width < 50 || rect.height < 50) return false;
+    if (!rect || rect.width < 50 || rect.height < 50 || target.closest('iframe')) return false;
 
     const x = rect.left + rect.width  / 2;
     const y = rect.top  + rect.height / 2;
