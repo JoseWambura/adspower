@@ -21,7 +21,7 @@
   /******************************************************************
    * CONFIG (time budget + pacing mode)
    ******************************************************************/
-  const TARGET_SECONDS = 90;                 // total desired time on page
+  const TARGET_SECONDS = randInt(70, 100);                 // total desired time on page
   const MODE = 'percent';                    // 'distance' | 'percent'
   const START_DELAY_MS = randInt(2000, 4000);// short randomized start
   const SAFETY_TAIL_MS = 3500;               // bottom linger + nav window
@@ -184,6 +184,68 @@
     cursor.style.left = x + 'px';
     cursor.style.top  = y + 'px';
   }
+  // --- Smooth rAF scroller (continuous, no ticking) ---
+function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+
+// Optional gentle speed variation so it doesn’t look robot-straight
+function speedMod(t){ return 1 + 0.18*Math.sin(2*Math.PI*(t*0.9 + 0.23)); }
+
+async function runBudgetedScroll_raf(totalMs){
+  const docH = getDocHeight();
+  const viewH = window.innerHeight;
+  const startY = window.scrollY || 0;
+  const distance = Math.max(0, docH - viewH - startY);
+  if (distance <= 0) { await sleep(Math.max(0, totalMs - SAFETY_TAIL_MS)); return; }
+
+  const scrollTimeMs = Math.max(1000, totalMs - SAFETY_TAIL_MS);
+
+  // depth markers (same as your BREAKPOINTS idea)
+  const depthMarks = new Set([25,50,75,90,100]);
+  let lastDepth = 0;
+
+  // Build a normalized progress that integrates speedMod but stays within scrollTimeMs
+  const t0 = performance.now();
+  let lastPct = 0;
+
+  return new Promise(resolve => {
+    (function frame(now){
+      const elapsed = now - t0;
+      const raw = Math.min(1, elapsed / scrollTimeMs);
+
+      // base easing for smoothness
+      const eased = easeInOutCubic(raw);
+
+      // apply gentle modulation, but normalize so we still end at 1.0
+      // we map eased -> modulated by blending (keeps smoothness)
+      const mod = clamp(eased * speedMod(eased), 0, 1);
+
+      // ensure monotonic increase vs last sample
+      const pct = Math.max(lastPct, Math.min(1, mod));
+      lastPct = pct;
+
+      const y = startY + distance * pct;
+      window.scrollTo(0, y);
+
+      // fire depth events only when crossing marks
+      const visPct = Math.round(((y + viewH) / docH) * 100);
+      for (const br of Array.from(depthMarks)) {
+        if (visPct >= br) {
+          fireEvent('scroll_depth', { label: br + '%' });
+          depthMarks.delete(br);
+        }
+      }
+
+      if (elapsed < scrollTimeMs && !atBottom()) {
+        requestAnimationFrame(frame);
+      } else {
+        // snap to bottom and finish
+        if (!atBottom()) window.scrollTo({ top: docH, behavior: 'instant' });
+        resolve();
+      }
+    })(performance.now());
+  });
+}
+
   function simulateHover(cursor) {
     const links = Array.from(document.querySelectorAll('a, button, img'))
       .filter(el => el.offsetWidth > 30 && el.offsetHeight > 20 && !el.closest('iframe'));
