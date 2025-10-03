@@ -1,4 +1,4 @@
-dude you are genious.. this code is marvelous.. // ==UserScript==
+// ==UserScript==
 // @name         JR Sports: Human-like Scroll + GA Events + Cursor Hover (Ads Focus)
 // @namespace    http://tampermonkey.net/
 // @version      7.4
@@ -212,7 +212,7 @@ dude you are genious.. this code is marvelous.. // ==UserScript==
     cursor.style.zIndex = '999999';
     cursor.style.pointerEvents = 'none';
     cursor.style.transition = 'top 0.35s ease, left 0.35s ease';
-    document.body.appendChild(cursor);
+    document.body.appendChild(cursor); // Ensure this is clean
     return cursor;
   }
   function removeFakeCursor() {
@@ -277,10 +277,10 @@ dude you are genious.. this code is marvelous.. // ==UserScript==
   }
 
   /******************************************************************
-   * START: delay, optional bounce, then begin scrolling + cursor sim
+   * START: delay, wait for ads, then begin scrolling + cursor sim
    ******************************************************************/
   const START_DELAY_MS = randInt(10000, 15000);
-  setTimeout(() => {
+  setTimeout(async () => {
     if (getNavCount() >= MAX_NAV_PAGES) return tryCloseTab('already max');
 
     // 3% instant bounce (2–5s after load)
@@ -290,9 +290,22 @@ dude you are genious.. this code is marvelous.. // ==UserScript==
       return setTimeout(() => tryCloseTab('instant bounce'), d);
     }
 
+    // Wait for page and ads to load
+    await new Promise(resolve => {
+        const check = () => {
+            const ads = document.querySelectorAll('#gpt-billboard, #gpt-passback4, #gpt-rect1, #gpt-rect2, #gpt-anchor');
+            if (document.readyState === 'complete' && ads.length > 0) {
+                resolve();
+            } else {
+                setTimeout(check, 500);
+            }
+        };
+        check();
+    });
+
     fireEvent('scroll_start', { label: `delay ${START_DELAY_MS}ms` });
-    startMouseSimulation();       // << start the fake cursor + hovers (incl. ad focus)
-    runScrollsUntilBottomThenAct();
+    startMouseSimulation(); // Start cursor + ad hovers
+    runScrollsUntilBottomThenAct(); // Kick off scrolling
   }, START_DELAY_MS);
 
 })();
