@@ -12,6 +12,9 @@
 (function () {
   'use strict';
 
+  // Track total time in-page
+  const pageStartMs = Date.now();
+
   /******************************************************************
    * HELPERS
    ******************************************************************/
@@ -28,6 +31,11 @@
   function atBottom(th = 2) {
     const doc = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
     return window.scrollY + window.innerHeight >= doc - th;
+  }
+  function scrollToBottom() {
+    const doc = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+    const y = Math.max(0, doc - window.innerHeight);
+    window.scrollTo(0, y);
   }
 
   /******************************************************************
@@ -98,6 +106,20 @@
       clearTimeout(engagedTimer);
     }
   }
+
+  // Minimum in-page dwell: 60–70 seconds
+  const MIN_INPAGE_MS = randInt(60000, 70000);
+  function timeSince(ts) { return Date.now() - ts; }
+  async function ensureMinDwell(startMs) {
+    const elapsed = timeSince(startMs);
+    const waitLeft = Math.max(0, MIN_INPAGE_MS - elapsed);
+    if (waitLeft > 0) {
+      scrollToBottom(); // ensure we visibly wait at the bottom
+      fireEvent('dwell_wait', { value: waitLeft });
+      await sleep(waitLeft);
+    }
+  }
+
   window.addEventListener('scroll', () => {
     if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
     checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
@@ -127,7 +149,6 @@
   // Auto-pause when tab hidden; resume when visible
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden) {
-      // if already paused for reading, let that run; otherwise pause
       if (!isPaused) await doReadingPause(0, 'bg_pause_begin'); // set flag only
     } else {
       if (pendingPause) { /* let reading pause finish */ }
@@ -145,17 +166,13 @@
       let lastProgress = 0;
 
       function frame(now) {
-        // Respect pauses
         if (isPaused) { requestAnimationFrame(frame); return; }
 
         const t = Math.min(1, (now - startT) / durationMs);
         const progress = easeInOutQuad(t);
-
-        // Compute delta for this frame only
         const step = (progress - lastProgress) * totalPx;
         lastProgress = progress;
 
-        // Apply step
         window.scrollBy(0, step);
 
         if (t < 1) requestAnimationFrame(frame);
@@ -169,10 +186,10 @@
     // Optional mid-cycle reading pause BEFORE moving
     if (PAUSE_PROFILE.longPauses > 0 && Math.random() < 0.5) {
       PAUSE_PROFILE.longPauses--;
-      await doReadingPause(randInt(15000, 25000)); // 15–25s real pause
+      await doReadingPause(randInt(15000, 25000)); // 15–25s
     } else if (PAUSE_PROFILE.shortPauses > 0 && Math.random() < 0.8) {
       PAUSE_PROFILE.shortPauses--;
-      await doReadingPause(randInt(6000, 10000)); // 6–10s pause
+      await doReadingPause(randInt(6000, 10000)); // 6–10s
     }
 
     const backscroll = Math.random() < 0.2; // 20% backscroll
@@ -200,10 +217,14 @@
     let cycles = 0;
 
     while (true) {
-      // If bottom and enough cycles, perform a final guaranteed pause before exit
+      // If bottom and enough cycles, dwell at bottom until min time reached, then navigate
       if (atBottom() && cycles >= cfg.cycles) {
         await doReadingPause(randInt(3000, 6000), 'final_pause');
         fireEvent('page_end', { label: `cycles=${cycles}` });
+
+        // Enforce minimum dwell (60–70s). Wait AT the bottom.
+        await ensureMinDwell(pageStartMs);
+
         await sleep(400 + randInt(200, 600));
         return navigateToRecentTarget();
       }
@@ -213,7 +234,7 @@
     }
   }
 
-  function navigateToRecentTarget() {
+  async function navigateToRecentTarget() {
     const n = getNavCount();
     if (n >= MAX_NAV_PAGES) return tryCloseTab('max pages');
 
@@ -224,6 +245,11 @@
     if (!links.length) return tryCloseTab('no posts');
 
     const target = links[Math.floor(Math.random() * links.length)].href;
+
+    // Safety guard: if we somehow reach here earlier, still enforce dwell at bottom
+    scrollToBottom();
+    await ensureMinDwell(pageStartMs);
+
     const delay = randInt(500, 2000);
     fireEvent('click_event', { label: target });
     setTimeout(() => { beforeNavigateIncrement(); location.href = target; }, delay);
@@ -284,8 +310,8 @@
     cursor.style.top = y + 'px';
     fireEvent('hover_event', { label: 'ad_focus_' + (target.id || 'slot') });
 
-    // REAL linger: pause cursor loop + set global pause lightly (doesn't stop scroll unless you want)
-    await sleep(randInt(2000, 4000)); // 2–4s hold
+    // REAL linger
+    await sleep(randInt(2000, 4000));
     return true;
   }
   function startMouseSimulation() {
@@ -295,18 +321,17 @@
     (async function loop() {
       if (stopped) return;
 
-      // Respect global pause for cursor too
       if (isPaused) { setTimeout(loop, 300); return; }
 
       const chance = Math.random();
-      if (chance < 0.2) { // 20% focus on ads
+      if (chance < 0.2) {
         if (!(await focusOnAd(cursor))) moveCursorRandom(cursor);
-      } else if (chance < 0.4) { // 20% hover links/images
+      } else if (chance < 0.4) {
         simulateHover(cursor);
-      } else { // 60% wander randomly
+      } else {
         moveCursorRandom(cursor);
       }
-      setTimeout(loop, randInt(3000, 6000)); // every 3–6s
+      setTimeout(loop, randInt(3000, 6000));
     })();
 
     return () => { stopped = true; removeFakeCursor(); };
