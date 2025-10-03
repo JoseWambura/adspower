@@ -58,20 +58,26 @@
     console.log('[HumanScroll] Image blocking disabled - CSP handles image restrictions');
 
     /******************************************************************
-     * B) HUMAN-LIKE SCROLLER
-     ******************************************************************/
-    (function () {
-        function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
-        try {
-            const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
-            sessionStorage.setItem('pv_count', String(pv));
-            window.__pageviews_in_tab = pv;
-            console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
-        } catch (e) {
-            console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
-            window.__pageviews_in_tab = 1;
-        }
-    })();
+ * B) HUMAN-LIKE SCROLLER
+ ******************************************************************/
+(function () {
+    function ordinal(n) { 
+        const j = n % 10, k = n % 100; 
+        if (j === 1 && k !== 11) return n + 'st'; 
+        if (j === 2 && k !== 12) return n + 'nd'; 
+        if (j === 3 && k !== 13) return n + 'rd'; 
+        return n + 'th'; 
+    }
+    try {
+        const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1); // Increment page view count
+        sessionStorage.setItem('pv_count', String(pv)); // Save updated count
+        window.__pageviews_in_tab = pv; // Store for reference
+        console.log('[HumanScroll] This is the ' + ordinal(pv) + ' page load in this tab. Total tabs opened so far: ' + pv);
+    } catch (e) {
+        console.log('[HumanScroll] sessionStorage unavailable; treating as 1st page load. Total tabs opened so far: 1');
+        window.__pageviews_in_tab = 1;
+    }
+})();
 
     const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 23000 + 1)) + 15000; // 15–20s
     const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
