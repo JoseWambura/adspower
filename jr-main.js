@@ -79,7 +79,7 @@
     }
   })();
 
-  const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 23000 + 1)) + 15000; // 15–20s
+  const START_DELAY_MS    = Math.floor(Math.random() * (30000 - 25000 + 1)) + 25000; // 15–20s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const SCROLL_DUR_MIN_MS  = 6000, SCROLL_DUR_MAX_MS  = 8000;
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 6–7 cycles
