@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JR Sports: Human-like Scroll + GA Events + Cursor Hover (90s Time Budget)
 // @namespace    http://tampermonkey.net/
-// @version      7.7
-// @description  Scrolls with GA events and a fake cursor, but caps dwell to ~90s on any page (adaptive to page height). Includes distance/percent pacing modes.
+// @version      7.8
+// @description  Scrolls with GA events and a fake cursor, caps dwell to ~90s on any page (adaptive to page height) with smooth animation.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -22,14 +22,9 @@
    * CONFIG (time budget + pacing mode)
    ******************************************************************/
   const TARGET_SECONDS = randInt(70, 100);                 // total desired time on page
-  const MODE = 'percent';                    // 'distance' | 'percent'
-  const START_DELAY_MS = randInt(2000, 4000);// short randomized start
-  const SAFETY_TAIL_MS = 3500;               // bottom linger + nav window
+  const START_DELAY_MS = randInt(2000, 4000);              // short randomized start
+  const SAFETY_TAIL_MS = 3500;                             // bottom linger + nav window
   const RECENT_POST_SEL = '.wp-block-latest-posts__list a';
-
-  // Distance-mode tuning
-  const MIN_STEP_MS = 120, MAX_STEP_MS = 220;
-  const MIN_STEP_PX = 40,  MAX_STEP_PX = 140;
 
   /******************************************************************
    * HELPERS
@@ -184,68 +179,6 @@
     cursor.style.left = x + 'px';
     cursor.style.top  = y + 'px';
   }
-  // --- Smooth rAF scroller (continuous, no ticking) ---
-function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
-
-// Optional gentle speed variation so it doesn’t look robot-straight
-function speedMod(t){ return 1 + 0.18*Math.sin(2*Math.PI*(t*0.9 + 0.23)); }
-
-async function runBudgetedScroll_raf(totalMs){
-  const docH = getDocHeight();
-  const viewH = window.innerHeight;
-  const startY = window.scrollY || 0;
-  const distance = Math.max(0, docH - viewH - startY);
-  if (distance <= 0) { await sleep(Math.max(0, totalMs - SAFETY_TAIL_MS)); return; }
-
-  const scrollTimeMs = Math.max(1000, totalMs - SAFETY_TAIL_MS);
-
-  // depth markers (same as your BREAKPOINTS idea)
-  const depthMarks = new Set([25,50,75,90,100]);
-  let lastDepth = 0;
-
-  // Build a normalized progress that integrates speedMod but stays within scrollTimeMs
-  const t0 = performance.now();
-  let lastPct = 0;
-
-  return new Promise(resolve => {
-    (function frame(now){
-      const elapsed = now - t0;
-      const raw = Math.min(1, elapsed / scrollTimeMs);
-
-      // base easing for smoothness
-      const eased = easeInOutCubic(raw);
-
-      // apply gentle modulation, but normalize so we still end at 1.0
-      // we map eased -> modulated by blending (keeps smoothness)
-      const mod = clamp(eased * speedMod(eased), 0, 1);
-
-      // ensure monotonic increase vs last sample
-      const pct = Math.max(lastPct, Math.min(1, mod));
-      lastPct = pct;
-
-      const y = startY + distance * pct;
-      window.scrollTo(0, y);
-
-      // fire depth events only when crossing marks
-      const visPct = Math.round(((y + viewH) / docH) * 100);
-      for (const br of Array.from(depthMarks)) {
-        if (visPct >= br) {
-          fireEvent('scroll_depth', { label: br + '%' });
-          depthMarks.delete(br);
-        }
-      }
-
-      if (elapsed < scrollTimeMs && !atBottom()) {
-        requestAnimationFrame(frame);
-      } else {
-        // snap to bottom and finish
-        if (!atBottom()) window.scrollTo({ top: docH, behavior: 'instant' });
-        resolve();
-      }
-    })(performance.now());
-  });
-}
-
   function simulateHover(cursor) {
     const links = Array.from(document.querySelectorAll('a, button, img'))
       .filter(el => el.offsetWidth > 30 && el.offsetHeight > 20 && !el.closest('iframe'));
@@ -287,80 +220,53 @@ async function runBudgetedScroll_raf(totalMs){
   }
 
   /******************************************************************
-   * TIME-BUDGETED SCROLLERS
+   * SMOOTH SCROLL ENGINE (RAF-based with time budget)
    ******************************************************************/
-  async function runBudgetedScroll_distance(totalMs) {
-    const startY = window.scrollY || 0;
-    const docH = getDocHeight();
-    const viewH = window.innerHeight;
-    const distance = Math.max(0, docH - viewH - startY);
+  function easeInOutCubic(t) { return t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; }
+  function speedMod(t) { return 1 + 0.18*Math.sin(2*Math.PI*(t*0.9 + 0.23)); }
 
-    if (distance <= 0) {
-      fireEvent('page_already_bottom', { value: distance });
-      const idle = Math.max(0, totalMs - SAFETY_TAIL_MS);
-      await sleep(idle);
-      return;
-    }
-
-    const approxStepPx = clamp(distance / 180, MIN_STEP_PX, MAX_STEP_PX);
-    let steps = Math.ceil(distance / approxStepPx);
-    steps = Math.max(40, Math.min(steps, 400));
-    const scrollTimeMs = Math.max(1000, totalMs - SAFETY_TAIL_MS);
-    let avgDelay = clamp(Math.floor(scrollTimeMs / steps), MIN_STEP_MS, MAX_STEP_MS);
-    steps = Math.max(10, Math.floor(scrollTimeMs / avgDelay));
-    const stepPx = distance / steps;
-
-    for (let i = 0; i < steps; i++) {
-      const jitterDelay = clamp(randInt(avgDelay - 30, avgDelay + 30), MIN_STEP_MS, MAX_STEP_MS);
-      window.scrollBy(0, stepPx);
-      if ((i % Math.floor(steps / 4 || 1)) === 0) {
-        const pct = Math.round(((window.scrollY + viewH) / docH) * 100);
-        fireEvent('scroll_depth', { label: pct + '%' });
-      }
-      await sleep(jitterDelay);
-    }
-
-    if (!atBottom()) {
-      window.scrollTo({ top: docH, behavior: 'smooth' });
-      await sleep(350);
-    }
-  }
-
-  async function runBudgetedScroll_percent(totalMs) {
+  async function runBudgetedScroll_raf(totalMs) {
     const docH = getDocHeight();
     const viewH = window.innerHeight;
     const startY = window.scrollY || 0;
     const distance = Math.max(0, docH - viewH - startY);
-
-    if (distance <= 0) {
-      await sleep(Math.max(0, totalMs - SAFETY_TAIL_MS));
-      return;
+    if (distance <= 0) { 
+      await sleep(Math.max(0, totalMs - SAFETY_TAIL_MS)); 
+      return; 
     }
 
     const scrollTimeMs = Math.max(1000, totalMs - SAFETY_TAIL_MS);
-    const stops = [0.25, 0.50, 0.75, 1.00].map(p => Math.round((docH - viewH) * p));
-    const slice = Math.floor(scrollTimeMs / stops.length);
+    const t0 = performance.now();
+    let lastPct = 0;
 
-    let lastTarget = window.scrollY || 0;
-    for (let i = 0; i < stops.length; i++) {
-      const targetY = stops[i];
-      const segmentDist = Math.max(0, targetY - lastTarget);
-      const steps = clamp(Math.ceil(segmentDist / 90), 12, 160);
-      const stepPx = segmentDist / steps;
-      const avgDelay = Math.max(12, Math.floor(slice / steps));
-      for (let s = 0; s < steps; s++) {
-        window.scrollBy(0, stepPx);
-        await sleep(randInt(Math.max(10, avgDelay - 25), avgDelay + 25));
-      }
-      const pct = Math.round(((window.scrollY + viewH) / docH) * 100);
-      fireEvent('scroll_depth', { label: pct + '%' });
-      lastTarget = targetY;
-    }
+    return new Promise(resolve => {
+      (function frame(now) {
+        const elapsed = now - t0;
+        const raw = Math.min(1, elapsed / scrollTimeMs);
+        const eased = easeInOutCubic(raw);
+        const mod = clamp(eased * speedMod(eased), 0, 1);
+        const pct = Math.max(lastPct, mod);
+        lastPct = pct;
 
-    if (!atBottom()) {
-      window.scrollTo({ top: docH, behavior: 'smooth' });
-      await sleep(300);
-    }
+        const y = startY + distance * pct;
+        window.scrollTo(0, y);
+
+        const visPct = Math.round(((y + viewH) / docH) * 100);
+        BREAKPOINTS.forEach(br => {
+          if (visPct >= br && !firedPercents.has(br)) {
+            firedPercents.add(br);
+            fireEvent('scroll_depth', { label: br + '%' });
+          }
+        });
+
+        if (elapsed < scrollTimeMs && !atBottom()) {
+          requestAnimationFrame(frame);
+        } else {
+          if (!atBottom()) window.scrollTo({ top: docH, behavior: 'smooth' });
+          resolve();
+        }
+      })(performance.now());
+    });
   }
 
   /******************************************************************
@@ -368,32 +274,27 @@ async function runBudgetedScroll_raf(totalMs){
    ******************************************************************/
   (async function await() {
     const wallStart = Date.now();
-    fireEvent('scroll_start', { label: `budgeted_v7.7` });
+    fireEvent('scroll_start', { label: `budgeted_v7.8` });
 
     // Small randomized start delay
     await sleep(START_DELAY_MS);
 
-    // Wait for DOM (interactive/complete). We don't block on ad slots here,
-    // to keep the overall timing consistent.
+    // Wait for DOM (interactive/complete)
     await new Promise(resolve => {
       const check = () => (document.readyState === 'interactive' || document.readyState === 'complete') ? resolve() : setTimeout(check, 50);
       check();
     });
 
-    // Compute remaining time budget relative to TARGET_SECONDS
-    const elapsed = Date.now() - wallStart; // includes START_DELAY_MS
+    // Compute remaining time budget
+    const elapsed = Date.now() - wallStart;
     const remaining = Math.max(0, (TARGET_SECONDS * 1000) - elapsed);
     const deadline = nowPerf() + remaining;
 
     // Start cursor sim, bounded by deadline
     const stopCursor = startMouseSimulation(deadline);
 
-    // Run one of the time-budgeted scrollers
-    if (MODE === 'percent') {
-      await runBudgetedScroll_percent(remaining);
-    } else {
-      await runBudgetedScroll_distance(remaining);
-    }
+    // Run smooth scroll
+    await runBudgetedScroll_raf(remaining);
 
     // Linger up to SAFETY_TAIL_MS if any budget remains, then navigate/exit
     const msLeft = Math.max(0, deadline - nowPerf());
