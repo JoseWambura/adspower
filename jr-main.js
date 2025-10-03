@@ -366,7 +366,7 @@ async function runBudgetedScroll_raf(totalMs){
   /******************************************************************
    * START: wait a beat, then run within a fixed 90s budget
    ******************************************************************/
-  (async function main() {
+  (async function await() {
     const wallStart = Date.now();
     fireEvent('scroll_start', { label: `budgeted_v7.7` });
 
