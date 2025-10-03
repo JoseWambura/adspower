@@ -79,12 +79,12 @@
     }
   })();
 
-  const START_DELAY_MS    = Math.floor(Math.random() * (30000 - 25000 + 1)) + 25000; // 15–20s
+  const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 15–20s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 6000, SCROLL_DUR_MAX_MS  = 8000;
+  const SCROLL_DUR_MIN_MS  = 5000, SCROLL_DUR_MAX_MS  = 7000;
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 6–7 cycles
-  const READ_PAUSE_MIN_MS  = 12500,  READ_PAUSE_MAX_MS  = 15000;
-  const BOTTOM_CONFIRM_MS  = 9000;
+  const READ_PAUSE_MIN_MS  = 10000,  READ_PAUSE_MAX_MS  = 12000;
+  const BOTTOM_CONFIRM_MS  = 10000;
 
   const firedPercents = new Set();
   const BREAKPOINTS = [25, 50, 75, 90, 100];
