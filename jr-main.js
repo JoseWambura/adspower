@@ -52,7 +52,7 @@
    * NAVIGATION COUNTER (controls page progression/limit)
    ******************************************************************/
   const NAV_KEY = '__hs_nav_count';
-  const MAX_NAV_PAGES = randInt(6, 13);
+  const MAX_NAV_PAGES = randInt(12, 15);
   function getNavCount() { try { return parseInt(sessionStorage.getItem(NAV_KEY) || '0', 10) || 0; } catch { return 0; } }
   function setNavCount(n) { try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {} }
   function beforeNavigateIncrement() {
