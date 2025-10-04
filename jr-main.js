@@ -311,7 +311,7 @@
     fireEvent('hover_event', { label: 'ad_focus_' + (target.id || 'slot') });
 
     // REAL linger
-    await sleep(randInt(2000, 4000));
+    await sleep(randInt(5000, 8000));
     return true;
   }
   function startMouseSimulation() {
