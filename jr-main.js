@@ -511,19 +511,19 @@
  * H) Center Ads in Viewport
  ******************************************************************/
 // Use requestAnimationFrame instead of fixed timeout for layout stability
-function scrollAdToCenter(ad) {
-  return new Promise((resolve) => {
+function scrollAdToCenter(adEl) {
+  return new Promise(resolve => {
     requestAnimationFrame(() => {
-      const rect = ad.getBoundingClientRect();
-      const currentScroll = window.scrollY;
-      const adCenterY = currentScroll + rect.top + rect.height / 2;
+      const rect = adEl.getBoundingClientRect();
+      const adCenterY = window.scrollY + rect.top + rect.height / 2;
       const targetScrollY = adCenterY - window.innerHeight / 2;
-      const scrollDistance = targetScrollY - currentScroll;
-
+      const currentScrollY = window.scrollY;
+      const totalPx = targetScrollY - currentScrollY;
       const duration = randInt(1000, 2000);
-      console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, `distance=${scrollDistance}px`);
 
-      animateScrollByPx(scrollDistance, duration).then(() => {
+      console.log('[HumanScroll] Scrolling to center iframe ad, distance:', totalPx);
+
+      animateScrollByPx(totalPx, duration).then(() => {
         console.log('[HumanScroll] Scroll complete.');
         resolve();
       });
@@ -533,6 +533,67 @@ function scrollAdToCenter(ad) {
 
 
 
+
+const adIframes = Array.from(document.querySelectorAll('iframe'))
+  .filter(iframe => {
+    try {
+      // Filter out iframes that are too small or empty
+      return (
+        iframe.offsetHeight > 50 &&
+        iframe.offsetWidth > 100 &&
+        iframe.src &&
+        iframe.src !== 'about:blank'
+      );
+    } catch (e) {
+      return false;
+    }
+  });
+
+if (adIframes.length) {
+  console.log('[HumanScroll] Found', adIframes.length, 'iframe ads to observe.');
+
+  const viewedAds = new Set();
+  let isProcessingAd = false;
+  let pausedUntil = 0;
+  const maxAdsToProcess = randInt(2, 3);
+  let adsProcessed = 0;
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(async entry => {
+      const iframe = entry.target;
+
+      if (
+        entry.isIntersecting &&
+        entry.intersectionRatio > 0.3 &&
+        !viewedAds.has(iframe) &&
+        !isProcessingAd &&
+        performance.now() >= pausedUntil &&
+        adsProcessed < maxAdsToProcess
+      ) {
+        isProcessingAd = true;
+
+        console.log('[HumanScroll] iframe ad visible:', iframe.src || iframe.className);
+
+        await scrollAdToCenter(iframe); // ⬅️ Scroll to center
+
+        viewedAds.add(iframe);
+        adsProcessed++;
+
+        simulateHover(); // Optional
+
+        const pauseDuration = 5000;
+        pausedUntil = performance.now() + pauseDuration;
+        console.log('[HumanScroll] Pausing for 5s...');
+
+        setTimeout(() => {
+          isProcessingAd = false;
+        }, pauseDuration);
+      }
+    });
+  }, { threshold: 0.3 });
+
+  adIframes.forEach(iframe => observer.observe(iframe));
+}
 
 
   /******************************************************************
