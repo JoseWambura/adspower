@@ -539,27 +539,31 @@ function scrollAdToCenter(ad) {
     await waitForAdsToLoad();
     let isPaused = false;
        // Set up ad pausing and centering
+        // Set up ad pausing and centering
     const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
     const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
     if (adContainers.length) {
       console.log('[HumanScroll] Found ' + adContainers.length + ' loaded ads for pausing and centering.');
       const viewedAds = new Set();
-      let isPaused = false;
+      let isProcessingAd = false;
+      const maxAdsToProcess = Math.floor(Math.random() * (3 - 2 + 1)) + 2; // 2–3 ads
+      let adsProcessed = 0;
       const observer = new IntersectionObserver(entries => {
         entries.forEach(entry => {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.3 && !viewedAds.has(entry.target) && !isPaused) {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.3 && !viewedAds.has(entry.target) && !isProcessingAd && adsProcessed < maxAdsToProcess) {
             viewedAds.add(entry.target);
-            if (Math.random() < 0.15) {
-              console.log('[HumanScroll] Ad ignored (15% chance):', entry.target.id || entry.target.className, '— continuing scroll without pause or centering.');
+            if (Math.random() < 0.05) {
+              console.log('[HumanScroll] Ad ignored (5% chance):', entry.target.id || entry.target.className, '— continuing scroll without pause or centering.');
               return;
             }
-            isPaused = true;
+            isProcessingAd = true;
+            adsProcessed++;
             const now = performance.now();
-            pausedUntil = Math.max(pausedUntil, now) + 30000;
-            console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— pausing for 30s.');
+            pausedUntil = Math.max(pausedUntil, now) + 45000; // Pause for 45s
+            console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— pausing for 45s (' + adsProcessed + '/' + maxAdsToProcess + ' ads processed).');
             scrollAdToCenter(entry.target);
             simulateHover();
-            setTimeout(() => { isPaused = false; }, 30000);
+            setTimeout(() => { isProcessingAd = false; }, 45000);
           }
         });
       }, { threshold: 0.3 });
