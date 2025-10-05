@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      4.2
 // @description  Human-like scroll with pauses on ads, random navigation limit (mostly 7-12 pages, rarely 3-6), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Ensures 70-90s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events.
-// @match        *://jrsports.click/*
+// @match        https://jrsports.click/*
 // @run-at       document-start
 // @noframes
 // @grant        none
