@@ -515,20 +515,22 @@ function scrollAdToCenter(ad) {
   return new Promise((resolve) => {
     requestAnimationFrame(() => {
       const rect = ad.getBoundingClientRect();
-      const adCenterY = rect.top + window.scrollY + rect.height / 2;
+      const currentScroll = window.scrollY;
+      const adCenterY = currentScroll + rect.top + rect.height / 2;
       const targetScrollY = adCenterY - window.innerHeight / 2;
-      const currentScrollY = window.scrollY;
-      const totalPx = targetScrollY - currentScrollY;
-      const durationMs = randInt(1000, 2000);
+      const scrollDistance = targetScrollY - currentScroll;
 
-      console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px');
-      animateScrollByPx(totalPx, durationMs).then(() => {
-        console.log('[HumanScroll] Scroll to ad complete.');
+      const duration = randInt(1000, 2000);
+      console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, `distance=${scrollDistance}px`);
+
+      animateScrollByPx(scrollDistance, duration).then(() => {
+        console.log('[HumanScroll] Scroll complete.');
         resolve();
       });
     });
   });
 }
+
 
 
 
@@ -559,34 +561,32 @@ function scrollAdToCenter(ad) {
       let isProcessingAd = false;
       const maxAdsToProcess = Math.floor(Math.random() * (3 - 2 + 1)) + 2; // 2–3 ads
       let adsProcessed = 0;
-  const observer = new IntersectionObserver(entries => {
+ const observer = new IntersectionObserver(entries => {
   entries.forEach(async entry => {
     if (
       entry.isIntersecting &&
       entry.intersectionRatio > 0.3 &&
       !viewedAds.has(entry.target) &&
       !isProcessingAd &&
+      performance.now() >= pausedUntil &&
       adsProcessed < maxAdsToProcess
     ) {
-      viewedAds.add(entry.target);
-
-      if (Math.random() < 0.05) {
-        console.log('[HumanScroll] Ad ignored (5% chance):', entry.target.id || entry.target.className);
-        return;
-      }
-
       isProcessingAd = true;
+
+      console.log('[HumanScroll] Ad visible (starting scroll):', entry.target.id || entry.target.className);
+
+      await scrollAdToCenter(entry.target);
+
+      // ✅ Now that it's centered, mark as viewed
+      viewedAds.add(entry.target);
       adsProcessed++;
 
-      console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— scrolling to center...');
-
-      await scrollAdToCenter(entry.target);  // 🟢 Wait for scroll to center
-
+      // Simulate hover after scroll
       simulateHover();
 
-      const pauseDuration = 5000; // 🕐 5 seconds
+      const pauseDuration = 5000; // 5 seconds
       pausedUntil = performance.now() + pauseDuration;
-      console.log('[HumanScroll] Pausing for 5s after centering ad');
+      console.log('[HumanScroll] Pausing for 5s...');
 
       setTimeout(() => {
         isProcessingAd = false;
