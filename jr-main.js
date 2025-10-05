@@ -192,23 +192,12 @@
     });
   }
 
-  async function doOneScrollCycle(isBackForth = false) {
+    async function doOneScrollCycle(isBackForth = false) {
     let dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
     let dur = randInt(SCROLL_DUR_MIN_MS, SCROLL_DUR_MAX_MS);
-    if (Math.random() < BURST_PROB) {
-      console.log('[HumanScroll] Burst scroll!');
-      dist = randInt(BURST_DIST_MIN_PX, BURST_DIST_MAX_PX);
-      dur = randInt(BURST_DUR_MIN_MS, BURST_DUR_MAX_MS);
-      const chainCount = Math.random() < 0.3 ? randInt(2, 3) : 1;
-      for (let i = 0; i < chainCount; i++) {
-        dispatchScrollStart();
-        await animateScrollByPx(dist, dur);
-      }
-    } else {
-      dispatchScrollStart();
-      if (isBackForth) dist = -dist;
-      await animateScrollByPx(dist, dur);
-    }
+    dispatchScrollStart();
+    if (isBackForth) dist = -dist;
+    await animateScrollByPx(dist, dur);
     checkAndSendDepth();
     await new Promise(r => setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)));
   }
