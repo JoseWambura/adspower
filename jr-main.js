@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JR Sports: Human-like Scroll + Recent Posts Random Nav, Close @Random
 // @namespace    http://tampermonkey.net/
-// @version      4.4
-// @description  Human-like scroll with pauses on ads (centered in viewport), random navigation limit (4-5 pages), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Ensures 70-90s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events.
+// @version      4.5
+// @description  Human-like scroll with pauses on ads (centered in viewport), random navigation limit (4-5 pages), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Ensures 140-180s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events. Fixed scrolling issues with robust ad detection and syntax error correction.
 // @match        https://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -43,17 +43,14 @@
   }
   function tryCloseTab(reason) {
     console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
-
     try { window.stop(); } catch {}
     try {
       document.documentElement.innerHTML = '';
       document.title = 'Done';
       document.documentElement.style.background = '#fff';
     } catch {}
-
     try { location.replace('about:blank'); } catch {}
     setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
-
     try { window.close(); } catch {}
     setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
   }
@@ -67,37 +64,36 @@
   })();
 
   /******************************************************************
-   *  A) IMAGE CONTROL - DISABLED due to CSP conflicts
+   * A) IMAGE CONTROL - DISABLED due to CSP conflicts
    ******************************************************************/
   console.log('[HumanScroll] Image blocking disabled - CSP handles image restrictions');
 
   /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER with enhancements
+   * B) HUMAN-LIKE SCROLLER with enhancements
    ******************************************************************/
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
     try {
-      const pv = (parseInt(sessionStorageევ
-Storage.getItem('pv_count') || '0', 10) + 1);
+      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
       sessionStorage.setItem('pv_count', String(pv));
       window.__pageviews_in_tab = pv;
-      console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
+      console.log('[HumanScroll] This is the ' + ordinal(pv) + ' page load in this tab.');
     } catch (e) {
-      console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
+      console.log('[HumanScroll] sessionStorage unavailable; treating as 1st page load.');
       window.__pageviews_in_tab = 1;
     }
   })();
 
   let pausedUntil = 0;
-  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s
-  const MAX_PAGE_TIME_MS = 180000; // 180s max
+  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (180000 - 140000 + 1)) + 140000; // 140–180s
+  const MAX_PAGE_TIME_MS = 180000; // 180s max (3 minutes)
   const START_DELAY_MS = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const BURST_DIST_MIN_PX = 400, BURST_DIST_MAX_PX = 800;
   const SCROLL_DUR_MIN_MS = 5000, SCROLL_DUR_MAX_MS = 7000;
   const BURST_DUR_MIN_MS = 1000, BURST_DUR_MAX_MS = 2000;
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 cycles
-  const READ_PAUSE_MIN_MS = 4000, READ_PAUSE_MAX_MS = 6000; // Adjusted for shorter cycles
+  const READ_PAUSE_MIN_MS = 4000, READ_PAUSE_MAX_MS = 6000; // 4–6s pauses
   const BOTTOM_CONFIRM_MS = 10000;
   const BACK_FORTH_PROB = 0.10; // 10% chance for back-and-forth
   const BURST_PROB = 0.05; // 5% chance for burst scroll per cycle
@@ -157,6 +153,7 @@ Storage.getItem('pv_count') || '0', 10) + 1);
       let lastY = startY;
       let totalPaused = 0;
       let currentPauseStart = 0;
+      console.log('[HumanScroll] Starting scroll: distance=' + totalPx + 'px, duration=' + durationMs + 'ms');
       (function frame(now) {
         if (now < pausedUntil) {
           if (currentPauseStart === 0) {
@@ -174,12 +171,23 @@ Storage.getItem('pv_count') || '0', 10) + 1);
         const progress = easeInOutQuad(t);
         const targetY = startY + totalPx * progress;
         const delta = targetY - lastY;
-        if (atBottom() && totalPx > 0) { resolve(); return; }
-        if (window.pageYOffset <= 0 && totalPx < 0) { resolve(); return; }
+        if (atBottom() && totalPx > 0) {
+          console.log('[HumanScroll] Scroll stopped: reached bottom');
+          resolve();
+          return;
+        }
+        if (window.pageYOffset <= 0 && totalPx < 0) {
+          console.log('[HumanScroll] Scroll stopped: reached top');
+          resolve();
+          return;
+        }
         window.scrollBy(0, delta);
         lastY = targetY;
         if (t < 1) requestAnimationFrame(frame);
-        else resolve();
+        else {
+          console.log('[HumanScroll] Scroll completed');
+          resolve();
+        }
       })(performance.now());
     });
   }
@@ -212,7 +220,10 @@ Storage.getItem('pv_count') || '0', 10) + 1);
       document.body.clientHeight, document.documentElement.clientHeight
     );
     setTimeout(function () {
-      if (!atBottom()) return;
+      if (!atBottom()) {
+        console.log('[HumanScroll] Not at bottom, continuing scroll');
+        return;
+      }
       const newHeight = Math.max(
         document.body.scrollHeight, document.documentElement.scrollHeight,
         document.body.offsetHeight, document.documentElement.offsetHeight,
@@ -246,7 +257,7 @@ Storage.getItem('pv_count') || '0', 10) + 1);
   }
 
   /******************************************************************
-   *  C) Recent Posts ONLY — rotation & GA event
+   * C) Recent Posts ONLY — rotation & GA event
    ******************************************************************/
   const RECENT_POOL_KEY = '__hs_recent_pool_v1';
   const RECENT_VISITED_KEY = '__hs_recent_visited_v1';
@@ -306,14 +317,12 @@ Storage.getItem('pv_count') || '0', 10) + 1);
     const candidates = getRecentPostLinks().map(o => o.href);
     if (!candidates.length) return null;
     const visited = loadVisited();
-
     let pool = candidates.filter(h => !visited.has(h));
     if (!pool.length) {
       visited.clear();
       saveVisited(visited);
       pool = candidates.slice();
     }
-
     const target = pool[Math.floor(Math.random() * pool.length)];
     visited.add(target);
     saveVisited(visited);
@@ -350,7 +359,7 @@ Storage.getItem('pv_count') || '0', 10) + 1);
   }
 
   /******************************************************************
-   *  D) Read More fallback (only if no Recent Posts found)
+   * D) Read More fallback (only if no Recent Posts found)
    ******************************************************************/
   function createFakeCursor() {
     const cursor = document.createElement('div');
@@ -405,7 +414,6 @@ Storage.getItem('pv_count') || '0', 10) + 1);
     const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
     const cursor = createFakeCursor();
     moveCursorTo(cursor, 60, 60);
-
     setTimeout(() => {
       moveCursorTo(cursor, targetX, targetY);
       setTimeout(() => {
@@ -421,18 +429,31 @@ Storage.getItem('pv_count') || '0', 10) + 1);
   }
 
   /******************************************************************
-   *  E) Flow — scroll to bottom with enhancements, then go to Random Recent Post (or Read More)
+   * E) Flow — scroll to bottom with enhancements, then go to Random Recent Post (or Read More)
    ******************************************************************/
   async function runScrollsUntilBottomThenAct(pageStartTime) {
     let cyclesDone = 0;
     const doBackForth = Math.random() < BACK_FORTH_PROB;
     if (doBackForth) console.log('[HumanScroll] Back-and-forth scrolling enabled.');
+    const hasEnoughHeight = document.body.scrollHeight > (window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight);
+    if (!hasEnoughHeight) {
+      console.log('[HumanScroll] Page too short to scroll, waiting for min page time');
+      const elapsed = performance.now() - pageStartTime;
+      const remaining = MIN_PAGE_TIME_MS - elapsed;
+      if (remaining > 0) {
+        setTimeout(() => navigateToRecentTarget(), remaining);
+      } else {
+        navigateToRecentTarget();
+      }
+      return;
+    }
     while (cyclesDone < MIN_SCROLL_CYCLES || !atBottom()) {
       if (performance.now() - pageStartTime > MAX_PAGE_TIME_MS) {
-        console.log('[HumanScroll] Max page time reached (90s). Forcing navigation.');
+        console.log('[HumanScroll] Max page time reached (180s). Forcing navigation.');
         navigateToRecentTarget();
         return;
       }
+      console.log('[HumanScroll] Starting scroll cycle', cyclesDone + 1);
       await doOneScrollCycle();
       cyclesDone++;
       if (Math.random() < 0.3) simulateHover();
@@ -453,14 +474,13 @@ Storage.getItem('pv_count') || '0', 10) + 1);
   }
 
   /******************************************************************
-   *  G) AD LOADING WAIT - Ensure ads load before scrolling
+   * G) AD LOADING WAIT - Ensure ads load before scrolling
    ******************************************************************/
   function waitForAdsToLoad() {
     return new Promise((resolve) => {
-      console.log('[AdWait] Waiting for ads to load...');
+      console.log('[AdWait] Waiting for ads or DOM to load...');
       let checks = 0;
-      const maxChecks = 30;
-
+      const maxChecks = 10; // Reduced to 10s to avoid long delays
       function checkAds() {
         checks++;
         const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
@@ -468,18 +488,14 @@ Storage.getItem('pv_count') || '0', 10) + 1);
         const loadedAds = Array.from(mainAdContainers).filter(container => {
           return container.innerHTML.length > 500 && container.offsetHeight > 50;
         });
-
-        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded`);
-
-        if (loadedAds.length >= 2 || checks >= maxChecks) {
-          console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded after ${checks} seconds`);
+        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded, DOM children: ${document.body.children.length}`);
+        if (loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
+          console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded, ${checks} checks, DOM ready: ${document.body.children.length > 0}`);
           resolve();
         } else {
           setTimeout(checkAds, 1000);
         }
       }
-
-      // Watch for dynamically loaded ads
       const observer = new MutationObserver(() => {
         checkAds();
       });
@@ -489,7 +505,7 @@ Storage.getItem('pv_count') || '0', 10) + 1);
   }
 
   /******************************************************************
-   *  H) Center Ads in Viewport
+   * H) Center Ads in Viewport
    ******************************************************************/
   function scrollAdToCenter(ad) {
     const rect = ad.getBoundingClientRect();
@@ -504,26 +520,21 @@ Storage.getItem('pv_count') || '0', 10) + 1);
   }
 
   /******************************************************************
-   *  F) Kickoff - Wait for ads then scroll
+   * F) Kickoff - Wait for ads then scroll
    ******************************************************************/
   setTimeout(async function () {
     const pageStartTime = performance.now();
     checkAndSendDepth();
     const limit = getNavLimit();
     if (getNavCount() >= limit) { tryCloseTab(`limit reached before scrolling (${limit})`); return; }
-
-    // Global timeout for max page time
     setTimeout(() => {
       if (performance.now() - pageStartTime > MAX_PAGE_TIME_MS) {
-        console.log('[HumanScroll] Global timeout reached (90s). Forcing navigation.');
+        console.log('[HumanScroll] Global timeout reached (180s). Forcing navigation.');
         navigateToRecentTarget();
       }
     }, MAX_PAGE_TIME_MS);
-
-    // WAIT FOR ADS TO LOAD BEFORE SCROLLING
     await waitForAdsToLoad();
-
-    // Set up ad pausing and centering
+    let isPaused = false;
     const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
     const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
     if (adContainers.length) {
@@ -531,19 +542,20 @@ Storage.getItem('pv_count') || '0', 10) + 1);
       const viewedAds = new Set();
       const observer = new IntersectionObserver(entries => {
         entries.forEach(entry => {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.3 && !viewedAds.has(entry.target)) {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.3 && !viewedAds.has(entry.target) && !isPaused) {
             viewedAds.add(entry.target);
+            isPaused = true;
             const now = performance.now();
             pausedUntil = Math.max(pausedUntil, now) + 30000;
             console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— pausing for 30s.');
-            scrollAdToCenter(entry.target); // Center the ad in the viewport
-            simulateHover(); // Hover during ad pause
+            scrollAdToCenter(entry.target);
+            simulateHover();
+            setTimeout(() => { isPaused = false; }, 30000);
           }
         });
       }, { threshold: 0.3 });
       adContainers.forEach(ad => observer.observe(ad));
     }
-
     console.log('[HumanScroll] Starting human-like scrolling after ads loaded');
     runScrollsUntilBottomThenAct(pageStartTime);
   }, START_DELAY_MS);
