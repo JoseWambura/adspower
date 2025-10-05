@@ -512,19 +512,22 @@
  ******************************************************************/
 // Use requestAnimationFrame instead of fixed timeout for layout stability
 function scrollAdToCenter(ad) {
-  requestAnimationFrame(() => {
-    const adTop = ad.getBoundingClientRect().top + window.scrollY;
-    const adCenterY = adTop + ad.offsetHeight / 2;
-    const scrollTargetY = adCenterY - window.innerHeight / 2;
-    const currentY = window.scrollY;
-    const totalPx = scrollTargetY - currentY;
-    const durationMs = randInt(1000, 2000);
+  return new Promise(resolve => {
+    requestAnimationFrame(() => {
+      const adTop = ad.getBoundingClientRect().top + window.scrollY;
+      const adCenterY = adTop + ad.offsetHeight / 2;
+      const scrollTargetY = adCenterY - window.innerHeight / 2;
+      const currentY = window.scrollY;
+      const totalPx = scrollTargetY - currentY;
+      const durationMs = randInt(1000, 2000);
 
-    console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px');
+      console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px');
 
-    animateScrollByPx(totalPx, durationMs);
+      animateScrollByPx(totalPx, durationMs).then(resolve);
+    });
   });
 }
+
 
 
   /******************************************************************
@@ -553,25 +556,43 @@ function scrollAdToCenter(ad) {
       let isProcessingAd = false;
       const maxAdsToProcess = Math.floor(Math.random() * (3 - 2 + 1)) + 2; // 2–3 ads
       let adsProcessed = 0;
-      const observer = new IntersectionObserver(entries => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting && entry.intersectionRatio > 0.3 && !viewedAds.has(entry.target) && !isProcessingAd && adsProcessed < maxAdsToProcess) {
-            viewedAds.add(entry.target);
-            if (Math.random() < 0.05) {
-              console.log('[HumanScroll] Ad ignored (5% chance):', entry.target.id || entry.target.className, '— continuing scroll without pause or centering.');
-              return;
-            }
-            isProcessingAd = true;
-            adsProcessed++;
-            const now = performance.now();
-            pausedUntil = Math.max(pausedUntil, now) + 45000; // Pause for 45s
-            console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— pausing for 45s (' + adsProcessed + '/' + maxAdsToProcess + ' ads processed).');
-            scrollAdToCenter(entry.target);
-            simulateHover();
-            setTimeout(() => { isProcessingAd = false; }, 45000);
-          }
-        });
-      }, { threshold: 0.3 });
+  const observer = new IntersectionObserver(entries => {
+  entries.forEach(async entry => {
+    if (
+      entry.isIntersecting &&
+      entry.intersectionRatio > 0.3 &&
+      !viewedAds.has(entry.target) &&
+      !isProcessingAd &&
+      adsProcessed < maxAdsToProcess
+    ) {
+      viewedAds.add(entry.target);
+
+      if (Math.random() < 0.05) {
+        console.log('[HumanScroll] Ad ignored (5% chance):', entry.target.id || entry.target.className);
+        return;
+      }
+
+      isProcessingAd = true;
+      adsProcessed++;
+
+      console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— scrolling to center...');
+
+      await scrollAdToCenter(entry.target);  // ⬅️ Wait for scroll to finish
+
+      const now = performance.now();
+      pausedUntil = Math.max(pausedUntil, now) + 45000; // Pause after scroll completes
+      console.log('[HumanScroll] Paused for 45s due to ad:', entry.target.id || entry.target.className);
+      
+      simulateHover();
+
+      setTimeout(() => {
+        isProcessingAd = false;
+      }, 45000);
+    }
+  });
+}, { threshold: 0.3 });
+
+
       adContainers.forEach(ad => observer.observe(ad));
     }
     console.log('[HumanScroll] Starting human-like scrolling after ads loaded');
