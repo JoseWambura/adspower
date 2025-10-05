@@ -500,12 +500,12 @@
  * H) Center Ads in Viewport
  ******************************************************************/
 // Use requestAnimationFrame instead of fixed timeout for layout stability
-function scrollAdToCenter(adEl) {
+function scrollAdToCenter(adEl, offsetPx = 0) {
   return new Promise(resolve => {
     requestAnimationFrame(() => {
       const rect = adEl.getBoundingClientRect();
       const adCenterY = window.scrollY + rect.top + rect.height / 2;
-      const targetScrollY = adCenterY - window.innerHeight / 2;
+      const targetScrollY = adCenterY - window.innerHeight / 2 + offsetPx;  // offset added here
       const currentScrollY = window.scrollY;
       const totalPx = targetScrollY - currentScrollY;
       const duration = randInt(1000, 2000);
@@ -519,6 +519,7 @@ function scrollAdToCenter(adEl) {
     });
   });
 }
+
 
 
 
