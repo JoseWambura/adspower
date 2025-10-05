@@ -91,7 +91,7 @@
 
   let pausedUntil = 0;
   const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s
-  const MAX_PAGE_TIME_MS = 90000; // 90s max
+  const MAX_PAGE_TIME_MS = 240000; // 90s max
   const START_DELAY_MS = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const BURST_DIST_MIN_PX = 400, BURST_DIST_MAX_PX = 800;
