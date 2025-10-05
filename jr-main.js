@@ -538,15 +538,21 @@ function scrollAdToCenter(ad) {
     }, MAX_PAGE_TIME_MS);
     await waitForAdsToLoad();
     let isPaused = false;
+       // Set up ad pausing and centering
     const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
     const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
     if (adContainers.length) {
       console.log('[HumanScroll] Found ' + adContainers.length + ' loaded ads for pausing and centering.');
       const viewedAds = new Set();
+      let isPaused = false;
       const observer = new IntersectionObserver(entries => {
         entries.forEach(entry => {
           if (entry.isIntersecting && entry.intersectionRatio > 0.3 && !viewedAds.has(entry.target) && !isPaused) {
             viewedAds.add(entry.target);
+            if (Math.random() < 0.15) {
+              console.log('[HumanScroll] Ad ignored (15% chance):', entry.target.id || entry.target.className, '— continuing scroll without pause or centering.');
+              return;
+            }
             isPaused = true;
             const now = performance.now();
             pausedUntil = Math.max(pausedUntil, now) + 30000;
