@@ -510,19 +510,22 @@
  /******************************************************************
  * H) Center Ads in Viewport
  ******************************************************************/
+// Use requestAnimationFrame instead of fixed timeout for layout stability
 function scrollAdToCenter(ad) {
-  setTimeout(() => {
-    const rect = ad.getBoundingClientRect();
-    const windowHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
-    const adCenterY = rect.top + window.pageYOffset + rect.height / 2;
-    const scrollY = adCenterY - windowHeight / 2;
-    const currentY = window.pageYOffset || document.documentElement.scrollTop || 0;
-    const totalPx = scrollY - currentY;
-    const durationMs = randInt(1000, 2000); // 1–2s for smooth scroll
-    console.log('[HumanScroll] Animating scroll to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px, duration=' + durationMs + 'ms');
+  requestAnimationFrame(() => {
+    const adTop = ad.getBoundingClientRect().top + window.scrollY;
+    const adCenterY = adTop + ad.offsetHeight / 2;
+    const scrollTargetY = adCenterY - window.innerHeight / 2;
+    const currentY = window.scrollY;
+    const totalPx = scrollTargetY - currentY;
+    const durationMs = randInt(1000, 2000);
+
+    console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px');
+
     animateScrollByPx(totalPx, durationMs);
-  }, 100); // 100ms delay for DOM stability
+  });
 }
+
 
   /******************************************************************
    * F) Kickoff - Wait for ads then scroll
