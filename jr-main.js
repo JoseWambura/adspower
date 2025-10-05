@@ -549,40 +549,43 @@ if (adIframes.length) {
   let adsProcessed = 0;
 
   const observer = new IntersectionObserver(entries => {
-    entries.forEach(async entry => {
-      const iframe = entry.target;
+  entries.forEach(async entry => {
+    const ad = entry.target;
+    const now = performance.now();
 
-      if (
-        entry.isIntersecting &&
-        entry.intersectionRatio > 0.3 &&
-        !viewedAds.has(iframe) &&
-        !isProcessingAd &&
-        performance.now() >= pausedUntil &&
-        adsProcessed < maxAdsToProcess
-      ) {
-        isProcessingAd = true;
+    if (
+      entry.isIntersecting &&
+      entry.intersectionRatio > 0.3 &&
+      !viewedAds.has(ad) &&
+      !isProcessingAd &&
+      now >= pausedUntil &&
+      adsProcessed < maxAdsToProcess
+    ) {
+      isProcessingAd = true;
 
-        console.log('[HumanScroll] iframe ad visible:', iframe.src || iframe.className);
+      console.log('[HumanScroll] Ad visible, scrolling to center:', ad.id || ad.className);
 
-        await scrollAdToCenter(iframe); // ⬅️ Scroll to center
+      await scrollAdToCenter(ad, 100); // offset 100px down, optional
 
-        viewedAds.add(iframe);
-        adsProcessed++;
+      viewedAds.add(ad);
+      adsProcessed++;
 
-        simulateHover(); // Optional
+      simulateHover();
 
-        const pauseDuration = randInt(7000, 11000); 
-        pausedUntil = performance.now() + pauseDuration;
-        console.log('[HumanScroll] Pausing for 5s...');
+      const pauseDuration = randInt(7000, 11000);
+      pausedUntil = now + pauseDuration;
 
-        setTimeout(() => {
-          isProcessingAd = false;
-        }, pauseDuration);
-      }
-    });
-  }, { threshold: 0.3 });
+      console.log(`[HumanScroll] Pausing for ${(pauseDuration / 1000).toFixed(2)} seconds`);
 
-  adIframes.forEach(iframe => observer.observe(iframe));
+      setTimeout(() => {
+        isProcessingAd = false;
+      }, pauseDuration);
+    }
+  });
+}, { threshold: 0.3 });
+
+
+ adContainers.forEach(ad => observer.observe(ad));
 }
 
 
