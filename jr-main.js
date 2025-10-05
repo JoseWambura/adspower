@@ -507,17 +507,20 @@
   /******************************************************************
    * H) Center Ads in Viewport
    ******************************************************************/
-  function scrollAdToCenter(ad) {
-    const rect = ad.getBoundingClientRect();
-    const windowHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
-    const adCenterY = rect.top + window.pageYOffset + rect.height / 2;
-    const scrollY = adCenterY - windowHeight / 2;
-    window.scrollTo({
-      top: Math.max(0, scrollY),
-      behavior: 'smooth'
-    });
-    console.log('[HumanScroll] Scrolled to center ad:', ad.id || ad.className);
-  }
+ /******************************************************************
+ * H) Center Ads in Viewport
+ ******************************************************************/
+function scrollAdToCenter(ad) {
+  const rect = ad.getBoundingClientRect();
+  const windowHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
+  const adCenterY = rect.top + window.pageYOffset + rect.height / 2;
+  const scrollY = adCenterY - windowHeight / 2;
+  const currentY = window.pageYOffset || document.documentElement.scrollTop || 0;
+  const totalPx = scrollY - currentY;
+  const durationMs = randInt(1000, 2000); // 1–2s for smooth scroll
+  console.log('[HumanScroll] Animating scroll to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px, duration=' + durationMs + 'ms');
+  animateScrollByPx(totalPx, durationMs);
+}
 
   /******************************************************************
    * F) Kickoff - Wait for ads then scroll
