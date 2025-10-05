@@ -512,21 +512,24 @@
  ******************************************************************/
 // Use requestAnimationFrame instead of fixed timeout for layout stability
 function scrollAdToCenter(ad) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     requestAnimationFrame(() => {
-      const adTop = ad.getBoundingClientRect().top + window.scrollY;
-      const adCenterY = adTop + ad.offsetHeight / 2;
-      const scrollTargetY = adCenterY - window.innerHeight / 2;
-      const currentY = window.scrollY;
-      const totalPx = scrollTargetY - currentY;
+      const rect = ad.getBoundingClientRect();
+      const adCenterY = rect.top + window.scrollY + rect.height / 2;
+      const targetScrollY = adCenterY - window.innerHeight / 2;
+      const currentScrollY = window.scrollY;
+      const totalPx = targetScrollY - currentScrollY;
       const durationMs = randInt(1000, 2000);
 
       console.log('[HumanScroll] Scrolling to center ad:', ad.id || ad.className, 'distance=' + totalPx + 'px');
-
-      animateScrollByPx(totalPx, durationMs).then(resolve);
+      animateScrollByPx(totalPx, durationMs).then(() => {
+        console.log('[HumanScroll] Scroll to ad complete.');
+        resolve();
+      });
     });
   });
 }
+
 
 
 
@@ -577,17 +580,17 @@ function scrollAdToCenter(ad) {
 
       console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— scrolling to center...');
 
-      await scrollAdToCenter(entry.target);  // ⬅️ Wait for scroll to finish
+      await scrollAdToCenter(entry.target);  // 🟢 Wait for scroll to center
 
-      const now = performance.now();
-      pausedUntil = Math.max(pausedUntil, now) + 45000; // Pause after scroll completes
-      console.log('[HumanScroll] Paused for 45s due to ad:', entry.target.id || entry.target.className);
-      
       simulateHover();
+
+      const pauseDuration = 5000; // 🕐 5 seconds
+      pausedUntil = performance.now() + pauseDuration;
+      console.log('[HumanScroll] Pausing for 5s after centering ad');
 
       setTimeout(() => {
         isProcessingAd = false;
-      }, 45000);
+      }, pauseDuration);
     }
   });
 }, { threshold: 0.3 });
