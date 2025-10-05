@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JR Sports: Human-like Scroll + Recent Posts Random Nav, Close @Random
 // @namespace    http://tampermonkey.net/
-// @version      4.2
-// @description  Human-like scroll with pauses on ads, random navigation limit (mostly 7-12 pages, rarely 3-6), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Ensures 70-90s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events.
+// @version      4.4
+// @description  Human-like scroll with pauses on ads (centered in viewport), random navigation limit (4-5 pages), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Ensures 70-90s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events.
 // @match        https://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -13,7 +13,7 @@
   'use strict';
 
   /******************************************************************
-   * 0) Navigation counter & auto-close after random limit (7-12 mostly, 3-6 rarely)
+   * 0) Navigation counter & auto-close after random limit (4-5 pages)
    ******************************************************************/
   const NAV_KEY = '__hs_nav_count';
   const LIMIT_KEY = '__hs_nav_limit';
@@ -26,9 +26,7 @@
   function getNavLimit() {
     let limit = parseInt(sessionStorage.getItem(LIMIT_KEY), 10);
     if (!limit) {
-      // 5% chance for 3-6, else 7-12
-      const rare = Math.random() < 0.05;
-      limit = rare ? Math.floor(Math.random() * (6 - 3 + 1)) + 3 : Math.floor(Math.random() * (12 - 7 + 1)) + 7;
+      limit = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 pages
       try { sessionStorage.setItem(LIMIT_KEY, String(limit)); } catch {}
     }
     return limit;
@@ -79,7 +77,8 @@
   (function () {
     function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
     try {
-      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
+      const pv = (parseInt(sessionStorageევ
+Storage.getItem('pv_count') || '0', 10) + 1);
       sessionStorage.setItem('pv_count', String(pv));
       window.__pageviews_in_tab = pv;
       console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
@@ -91,7 +90,7 @@
 
   let pausedUntil = 0;
   const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s
-  const MAX_PAGE_TIME_MS = 240000; // 90s max
+  const MAX_PAGE_TIME_MS = 180000; // 180s max
   const START_DELAY_MS = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const BURST_DIST_MIN_PX = 400, BURST_DIST_MAX_PX = 800;
@@ -452,6 +451,7 @@
       navigateToRecentTarget();
     });
   }
+
   /******************************************************************
    *  G) AD LOADING WAIT - Ensure ads load before scrolling
    ******************************************************************/
@@ -487,6 +487,22 @@
       checkAds();
     });
   }
+
+  /******************************************************************
+   *  H) Center Ads in Viewport
+   ******************************************************************/
+  function scrollAdToCenter(ad) {
+    const rect = ad.getBoundingClientRect();
+    const windowHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
+    const adCenterY = rect.top + window.pageYOffset + rect.height / 2;
+    const scrollY = adCenterY - windowHeight / 2;
+    window.scrollTo({
+      top: Math.max(0, scrollY),
+      behavior: 'smooth'
+    });
+    console.log('[HumanScroll] Scrolled to center ad:', ad.id || ad.className);
+  }
+
   /******************************************************************
    *  F) Kickoff - Wait for ads then scroll
    ******************************************************************/
@@ -507,11 +523,11 @@
     // WAIT FOR ADS TO LOAD BEFORE SCROLLING
     await waitForAdsToLoad();
 
-    // Set up ad pausing
+    // Set up ad pausing and centering
     const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
     const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
     if (adContainers.length) {
-      console.log('[HumanScroll] Found ' + adContainers.length + ' loaded ads for pausing.');
+      console.log('[HumanScroll] Found ' + adContainers.length + ' loaded ads for pausing and centering.');
       const viewedAds = new Set();
       const observer = new IntersectionObserver(entries => {
         entries.forEach(entry => {
@@ -520,6 +536,7 @@
             const now = performance.now();
             pausedUntil = Math.max(pausedUntil, now) + 30000;
             console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className, '— pausing for 30s.');
+            scrollAdToCenter(entry.target); // Center the ad in the viewport
             simulateHover(); // Hover during ad pause
           }
         });
