@@ -570,7 +570,7 @@ if (adIframes.length) {
 
         simulateHover(); // Optional
 
-        const pauseDuration = 5000;
+        const pauseDuration = randInt(7000, 11000); 
         pausedUntil = performance.now() + pauseDuration;
         console.log('[HumanScroll] Pausing for 5s...');
 
