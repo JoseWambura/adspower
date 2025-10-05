@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JR Sports: Human-like Scroll + Recent Posts Random Nav, Close @Random
 // @namespace    http://tampermonkey.net/
-// @version      4.1
-// @description  Human-like scroll with pauses on ads, random navigation limit (mostly 7-12 pages, rarely 3-6), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Max 90s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events.
+// @version      4.2
+// @description  Human-like scroll with pauses on ads, random navigation limit (mostly 7-12 pages, rarely 3-6), hover events, scrollstart events, occasional burst scrolls, 10% back-and-forth scrolling. Ensures 70-90s per page, then auto-navigate. Tracks visited recent posts per tab (no repeats) and sends GA events.
 // @match        *://jrsports.click/*
 // @run-at       document-start
 // @noframes
@@ -90,15 +90,16 @@
   })();
 
   let pausedUntil = 0;
-  const MAX_PAGE_TIME_MS = 80000; // 90 seconds max per page
-  const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
+  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s
+  const MAX_PAGE_TIME_MS = 90000; // 90s max
+  const START_DELAY_MS = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const BURST_DIST_MIN_PX = 400, BURST_DIST_MAX_PX = 800;
-  const SCROLL_DUR_MIN_MS  = 5000, SCROLL_DUR_MAX_MS  = 7000;
-  const BURST_DUR_MIN_MS   = 1000, BURST_DUR_MAX_MS   = 2000;
-  const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (7 - 6 + 1)) + 6; // 6–7 cycles for ~120s average
-  const READ_PAUSE_MIN_MS  = 12000,  READ_PAUSE_MAX_MS  = 15000; // Increased for longer engagement
-  const BOTTOM_CONFIRM_MS  = 10000;
+  const SCROLL_DUR_MIN_MS = 5000, SCROLL_DUR_MAX_MS = 7000;
+  const BURST_DUR_MIN_MS = 1000, BURST_DUR_MAX_MS = 2000;
+  const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 cycles
+  const READ_PAUSE_MIN_MS = 4000, READ_PAUSE_MAX_MS = 6000; // Adjusted for shorter cycles
+  const BOTTOM_CONFIRM_MS = 10000;
   const BACK_FORTH_PROB = 0.10; // 10% chance for back-and-forth
   const BURST_PROB = 0.05; // 5% chance for burst scroll per cycle
 
@@ -154,7 +155,7 @@
     return new Promise(function (resolve) {
       const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
       const startT = performance.now();
-      let lastY  = startY;
+      let lastY = startY;
       let totalPaused = 0;
       let currentPauseStart = 0;
       (function frame(now) {
@@ -169,11 +170,11 @@
           totalPaused += now - currentPauseStart;
           currentPauseStart = 0;
         }
-        const elapsed  = now - startT - totalPaused;
-        const t        = Math.min(1, elapsed / durationMs);
+        const elapsed = now - startT - totalPaused;
+        const t = Math.min(1, elapsed / durationMs);
         const progress = easeInOutQuad(t);
-        const targetY  = startY + totalPx * progress;
-        const delta    = targetY - lastY;
+        const targetY = startY + totalPx * progress;
+        const delta = targetY - lastY;
         if (atBottom() && totalPx > 0) { resolve(); return; }
         if (window.pageYOffset <= 0 && totalPx < 0) { resolve(); return; }
         window.scrollBy(0, delta);
@@ -191,7 +192,6 @@
       console.log('[HumanScroll] Burst scroll!');
       dist = randInt(BURST_DIST_MIN_PX, BURST_DIST_MAX_PX);
       dur = randInt(BURST_DUR_MIN_MS, BURST_DUR_MAX_MS);
-      // Chain 2-3 burst scrolls occasionally
       const chainCount = Math.random() < 0.3 ? randInt(2, 3) : 1;
       for (let i = 0; i < chainCount; i++) {
         dispatchScrollStart();
@@ -206,7 +206,7 @@
     await new Promise(r => setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)));
   }
 
-  function confirmBottomStable(cb) {
+  function confirmBottomStable(pageStartTime, cb) {
     const initialHeight = Math.max(
       document.body.scrollHeight, document.documentElement.scrollHeight,
       document.body.offsetHeight, document.documentElement.offsetHeight,
@@ -219,7 +219,16 @@
         document.body.offsetHeight, document.documentElement.offsetHeight,
         document.body.clientHeight, document.documentElement.clientHeight
       );
-      if (Math.abs(newHeight - initialHeight) < 4) cb();
+      if (Math.abs(newHeight - initialHeight) < 4) {
+        const elapsed = performance.now() - pageStartTime;
+        const remaining = MIN_PAGE_TIME_MS - elapsed;
+        if (remaining > 0) {
+          console.log('[HumanScroll] Scrolling done early, waiting', Math.round(remaining / 1000), 's to reach min page time');
+          setTimeout(cb, remaining);
+        } else {
+          cb();
+        }
+      }
     }, BOTTOM_CONFIRM_MS);
   }
 
@@ -437,7 +446,7 @@
         }
       }
     }
-    confirmBottomStable(function () {
+    confirmBottomStable(pageStartTime, function () {
       checkAndSendDepth();
       console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Going to a random Recent Post…');
       navigateToRecentTarget();
@@ -451,7 +460,7 @@
       console.log('[AdWait] Waiting for ads to load...');
       let checks = 0;
       const maxChecks = 30;
-      
+
       function checkAds() {
         checks++;
         const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
@@ -459,9 +468,9 @@
         const loadedAds = Array.from(mainAdContainers).filter(container => {
           return container.innerHTML.length > 500 && container.offsetHeight > 50;
         });
-        
+
         console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded`);
-        
+
         if (loadedAds.length >= 2 || checks >= maxChecks) {
           console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded after ${checks} seconds`);
           resolve();
@@ -469,7 +478,7 @@
           setTimeout(checkAds, 1000);
         }
       }
-      
+
       // Watch for dynamically loaded ads
       const observer = new MutationObserver(() => {
         checkAds();
@@ -486,7 +495,7 @@
     checkAndSendDepth();
     const limit = getNavLimit();
     if (getNavCount() >= limit) { tryCloseTab(`limit reached before scrolling (${limit})`); return; }
-    
+
     // Global timeout for max page time
     setTimeout(() => {
       if (performance.now() - pageStartTime > MAX_PAGE_TIME_MS) {
@@ -517,7 +526,7 @@
       }, { threshold: 0.3 });
       adContainers.forEach(ad => observer.observe(ad));
     }
-    
+
     console.log('[HumanScroll] Starting human-like scrolling after ads loaded');
     runScrollsUntilBottomThenAct(pageStartTime);
   }, START_DELAY_MS);
