@@ -26,7 +26,7 @@
   function getNavLimit() {
     let limit = parseInt(sessionStorage.getItem(LIMIT_KEY), 10);
     if (!limit) {
-      limit = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 pages
+      limit = Math.floor(Math.random() * (4 - 3 + 1)) + 3; // 4–5 pages
       try { sessionStorage.setItem(LIMIT_KEY, String(limit)); } catch {}
     }
     return limit;
@@ -85,8 +85,7 @@
   })();
 
   let pausedUntil = 0;
-  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (180000 - 140000 + 1)) + 140000; // 140–180s
-  const MAX_PAGE_TIME_MS = 180000; // 180s max (3 minutes)
+  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s  const MAX_PAGE_TIME_MS = 90000; // 180s max (3 minutes)
   const START_DELAY_MS = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const BURST_DIST_MIN_PX = 400, BURST_DIST_MAX_PX = 800;
