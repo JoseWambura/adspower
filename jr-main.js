@@ -445,10 +445,12 @@
     const maxChecks = 10; // 10s max
     function checkAds() {
       checks++;
+      const contentSelectors = '.entry-content, .inside-article, article';
+      const content = document.querySelector(contentSelectors);
       const adSelectors = '#gpt-rect1, #gpt-passback2, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
-      const mainAdContainers = document.querySelectorAll(adSelectors);
-      const gptRect1 = document.querySelector('#gpt-rect1');
-      const loadedAds = Array.from(mainAdContainers).filter(container => {
+      const mainAdContainers = content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors));
+      const gptRect1 = content ? content.querySelector('#gpt-rect1') : document.querySelector('#gpt-rect1');
+      const loadedAds = mainAdContainers.filter(container => {
         return container.innerHTML.length > 500 && container.offsetHeight > 50;
       });
       const isGptRect1Loaded = gptRect1 && gptRect1.innerHTML.length > 500 && gptRect1.offsetHeight >= 250;
@@ -465,7 +467,6 @@
     checkAds();
   });
 }
-
   /******************************************************************
    * G) Flow - Scroll, Center Ads, Navigate
    ******************************************************************/
@@ -533,8 +534,10 @@
     }
   }, MAX_PAGE_TIME_MS);
   await waitForAdsToLoad();
+  const contentSelectors = '.entry-content, .inside-article, article';
+  const content = document.querySelector(contentSelectors);
   const adSelectors = '#gpt-rect1, #gpt-passback2, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
-  const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
+  const adContainers = content ? Array.from(content.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50) : Array.from(document.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
   const adIframes = Array.from(document.querySelectorAll('iframe')).filter(f => {
     try {
       return f.offsetHeight > 50 && f.offsetWidth > 100 && f.src && f.src !== 'about:blank';
