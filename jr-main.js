@@ -350,81 +350,83 @@
    * G) AD LOADING WAIT - Ensure ads load before scrolling
    ******************************************************************/
   function waitForAdsToLoad() {
-    return new Promise(resolve => {
-      console.log('[AdWait] Waiting for ads or DOM to load...');
-      let checks = 0;
-      const maxChecks = 6; // 6s max for SunBrowser
-      function checkAds() {
-        checks++;
-        const contentSelectors = '.entry-content, .inside-article, article';
-        const content = document.querySelector(contentSelectors);
-        const adSelectors = '#gpt-passback2, #gpt-rect1, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
-        const mainAdContainers = content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors));
-        const gptPassback2 = content ? content.querySelector('#gpt-passback2') : document.querySelector('#gpt-passback2');
-        const gptRect1 = content ? content.querySelector('#gpt-rect1') : document.querySelector('#gpt-rect1');
-        const loadedAds = mainAdContainers.filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
-        const isGptPassback2Loaded = gptPassback2 && gptPassback2.innerHTML.length > 500 && gptPassback2.offsetHeight >= 280;
-        const isGptRect1Loaded = gptRect1 && gptRect1.innerHTML.length > 500 && gptRect1.offsetHeight >= 250;
-        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads, #gpt-passback2: ${!!isGptPassback2Loaded}, #gpt-rect1: ${!!isGptRect1Loaded}, DOM children: ${document.body.children.length}`);
-        if (isGptPassback2Loaded || isGptRect1Loaded || loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
-          console.log(`[AdWait] Proceeding - #gpt-passback2: ${!!isGptPassback2Loaded}, #gpt-rect1: ${!!isGptRect1Loaded}, ${loadedAds.length} ads, ${checks} checks`);
-          resolve();
-        } else {
-          setTimeout(checkAds, 1000);
-        }
+  return new Promise(resolve => {
+    console.log('[AdWait] Waiting for ads or DOM to load...');
+    let checks = 0;
+    const maxChecks = 6; // 6s max for SunBrowser
+    function checkAds() {
+      checks++;
+      const contentSelectors = '.entry-content, .inside-article, article';
+      const content = document.querySelector(contentSelectors);
+      const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-rect1, #gpt-passback4, .ad-container, .adsbygoogle';
+      const mainAdContainers = content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors));
+      const gptPassback2 = content ? content.querySelector('#gpt-passback2') : document.querySelector('#gpt-passback2');
+      const gptPassback3 = content ? content.querySelector('#gpt-passback3') : document.querySelector('#gpt-passback3');
+      const gptRect1 = content ? content.querySelector('#gpt-rect1') : document.querySelector('#gpt-rect1');
+      const loadedAds = mainAdContainers.filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
+      const isGptPassback2Loaded = gptPassback2 && gptPassback2.innerHTML.length > 500 && gptPassback2.offsetHeight >= 280;
+      const isGptPassback3Loaded = gptPassback3 && gptPassback3.innerHTML.length > 500 && gptPassback3.offsetHeight >= 280;
+      const isGptRect1Loaded = gptRect1 && gptRect1.innerHTML.length > 500 && gptRect1.offsetHeight >= 250;
+      console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads, #gpt-passback2: ${!!isGptPassback2Loaded}, #gpt-passback3: ${!!isGptPassback3Loaded}, #gpt-rect1: ${!!isGptRect1Loaded}, DOM children: ${document.body.children.length}`);
+      if (isGptPassback2Loaded || isGptPassback3Loaded || isGptRect1Loaded || loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
+        console.log(`[AdWait] Proceeding - #gpt-passback2: ${!!isGptPassback2Loaded}, #gpt-passback3: ${!!isGptPassback3Loaded}, #gpt-rect1: ${!!isGptRect1Loaded}, ${loadedAds.length} ads, ${checks} checks`);
+        resolve();
+      } else {
+        setTimeout(checkAds, 1000);
       }
-      const observer = new MutationObserver(checkAds);
-      observer.observe(document.body, { childList: true, subtree: true });
-      checkAds();
-    });
-  }
+    }
+    const observer = new MutationObserver(checkAds);
+    observer.observe(document.body, { childList: true, subtree: true });
+    checkAds();
+  });
+}
 
   /******************************************************************
-   * F) Kickoff
-   ******************************************************************/
-  setTimeout(async function () {
-    const pageStartTime = performance.now();
-    checkAndSendDepth();
-    if (getNavCount() >= 3) { tryCloseTab('limit reached before scrolling'); return; }
-    setTimeout(() => {
-      if (performance.now() - pageStartTime > 90000) {
-        console.log('[HumanScroll] Max page time reached (90s). Forcing navigation.');
-        navigateToRecentTarget();
-      }
-    }, 90000);
-    await waitForAdsToLoad();
-    const contentSelectors = '.entry-content, .inside-article, article';
-    const content = document.querySelector(contentSelectors);
-    const adSelectors = '#gpt-passback2, #gpt-rect1, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
-    const adContainers = (content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors)))
-      .filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
-    const adIframes = Array.from(document.querySelectorAll('iframe')).filter(f => {
-      try {
-        return f.offsetHeight > 50 && f.offsetWidth > 100 && f.src && f.src !== 'about:blank';
-      } catch {
-        return false;
-      }
-    });
-    const allAds = [...adContainers, ...adIframes];
-    let pausedUntil = 0;
-    function scrollAdToCenter(adEl) {
-      return new Promise(resolve => {
-        requestAnimationFrame(() => {
-          try {
-            const rect = adEl.getBoundingClientRect();
-            const adCenterY = window.scrollY + rect.top + rect.height / 2;
-            const targetScrollY = adCenterY - window.innerHeight / 2;
-            const totalPx = targetScrollY - window.scrollY;
-            const duration = randInt(1000, 2000);
-            console.log('[HumanScroll] Scrolling to center ad:', adEl.id || adEl.className, 'distance:', totalPx, 'px, duration:', duration, 'ms');
-            animateScrollByPx(totalPx, duration).then(resolve);
-          } catch (e) {
-            console.warn('[HumanScroll] Error centering ad:', e.message);
-            resolve();
-          }
-        });
-      });
+ * F) Kickoff
+ ******************************************************************/
+setTimeout(async function () {
+  const pageStartTime = performance.now();
+  checkAndSendDepth();
+  if (getNavCount() >= 3) { tryCloseTab('limit reached before scrolling'); return; }
+  setTimeout(() => {
+    if (performance.now() - pageStartTime > 90000) {
+      console.log('[HumanScroll] Max page time reached (90s). Forcing navigation.');
+      navigateToRecentTarget();
     }
+  }, 90000);
+  await waitForAdsToLoad();
+  const contentSelectors = '.entry-content, .inside-article, article';
+  const content = document.querySelector(contentSelectors);
+  const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-rect1, #gpt-passback4, .ad-container, .adsbygoogle';
+  const adContainers = (content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors)))
+    .filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
+  const adIframes = Array.from(document.querySelectorAll('iframe')).filter(f => {
+    try {
+      return f.offsetHeight > 50 && f.offsetWidth > 100 && f.src && f.src !== 'about:blank';
+    } catch {
+      return false;
+    }
+  });
+  const allAds = [...adContainers, ...adIframes];
+  let pausedUntil = 0;
+  function scrollAdToCenter(adEl) {
+    return new Promise(resolve => {
+      requestAnimationFrame(() => {
+        try {
+          const rect = adEl.getBoundingClientRect();
+          const adCenterY = window.scrollY + rect.top + rect.height / 2;
+          const targetScrollY = adCenterY - window.innerHeight / 2;
+          const totalPx = targetScrollY - window.scrollY;
+          const duration = randInt(1000, 2000);
+          console.log('[HumanScroll] Scrolling to center ad:', adEl.id || adEl.className, 'distance:', totalPx, 'px, duration:', duration, 'ms');
+          animateScrollByPx(totalPx, duration).then(resolve);
+        } catch (e) {
+          console.warn('[HumanScroll] Error centering ad:', e.message);
+          resolve();
+        }
+      });
+    });
+  }
     function simulateHover() {
       const hoverable = allAds.length ? allAds : document.querySelectorAll('a');
       if (hoverable.length) {
