@@ -439,30 +439,32 @@
    * F) Ad Loading Wait
    ******************************************************************/
   function waitForAdsToLoad() {
-    return new Promise(resolve => {
-      console.log('[AdWait] Waiting for ads or DOM to load...');
-      let checks = 0;
-      const maxChecks = 10; // 10s max
-      function checkAds() {
-        checks++;
-        const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
-        const mainAdContainers = document.querySelectorAll(adSelectors);
-        const loadedAds = Array.from(mainAdContainers).filter(container => {
-          return container.innerHTML.length > 500 && container.offsetHeight > 50;
-        });
-        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded, DOM children: ${document.body.children.length}`);
-        if (loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
-          console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded, ${checks} checks, DOM ready: ${document.body.children.length > 0}`);
-          resolve();
-        } else {
-          setTimeout(checkAds, 1000);
-        }
+  return new Promise(resolve => {
+    console.log('[AdWait] Waiting for ads or DOM to load...');
+    let checks = 0;
+    const maxChecks = 10; // 10s max
+    function checkAds() {
+      checks++;
+      const adSelectors = '#gpt-rect1, #gpt-passback2, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
+      const mainAdContainers = document.querySelectorAll(adSelectors);
+      const gptRect1 = document.querySelector('#gpt-rect1');
+      const loadedAds = Array.from(mainAdContainers).filter(container => {
+        return container.innerHTML.length > 500 && container.offsetHeight > 50;
+      });
+      const isGptRect1Loaded = gptRect1 && gptRect1.innerHTML.length > 500 && gptRect1.offsetHeight >= 250;
+      console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded, #gpt-rect1 loaded: ${!!isGptRect1Loaded}, DOM children: ${document.body.children.length}`);
+      if (isGptRect1Loaded || loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
+        console.log(`[AdWait] Proceeding - #gpt-rect1: ${!!isGptRect1Loaded}, ${loadedAds.length} ads loaded, ${checks} checks, DOM ready: ${document.body.children.length > 0}`);
+        resolve();
+      } else {
+        setTimeout(checkAds, 1000);
       }
-      const observer = new MutationObserver(checkAds);
-      observer.observe(document.body, { childList: true, subtree: true });
-      checkAds();
-    });
-  }
+    }
+    const observer = new MutationObserver(checkAds);
+    observer.observe(document.body, { childList: true, subtree: true });
+    checkAds();
+  });
+}
 
   /******************************************************************
    * G) Flow - Scroll, Center Ads, Navigate
@@ -516,71 +518,71 @@
   /******************************************************************
    * H) Kickoff
    ******************************************************************/
-  setTimeout(async () => {
-    const pageStartTime = performance.now();
-    checkAndSendDepth();
-    const limit = getNavLimit();
-    if (getNavCount() >= limit) {
-      tryCloseTab(`limit reached before scrolling (${limit})`);
-      return;
+ setTimeout(async () => {
+  const pageStartTime = performance.now();
+  checkAndSendDepth();
+  const limit = getNavLimit();
+  if (getNavCount() >= limit) {
+    tryCloseTab(`limit reached before scrolling (${limit})`);
+    return;
+  }
+  setTimeout(() => {
+    if (performance.now() - pageStartTime > MAX_PAGE_TIME_MS) {
+      console.log('[HumanScroll] Max page time reached (90s). Forcing navigation.');
+      navigateToRecentTarget();
     }
-    setTimeout(() => {
-      if (performance.now() - pageStartTime > MAX_PAGE_TIME_MS) {
-        console.log('[HumanScroll] Max page time reached (90s). Forcing navigation.');
-        navigateToRecentTarget();
-      }
-    }, MAX_PAGE_TIME_MS);
-    await waitForAdsToLoad();
-    const adSelectors = '#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1, .ad-container, .adsbygoogle';
-    const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
-    const adIframes = Array.from(document.querySelectorAll('iframe')).filter(f => {
-      try {
-        return f.offsetHeight > 50 && f.offsetWidth > 100 && f.src && f.src !== 'about:blank';
-      } catch {
-        return false;
-      }
-    });
-    const allAds = [...adContainers, ...adIframes];
-    if (allAds.length) {
-      console.log('[HumanScroll] Found', allAds.length, 'ads for pausing/centering.');
-      const viewedAds = new Set();
-      let isProcessingAd = false;
-      const maxAdsToProcess = randInt(2, 3);
-      let adsProcessed = 0;
-      const observer = new IntersectionObserver(entries => {
-        entries.forEach(async entry => {
-          if (
-            entry.isIntersecting &&
-            entry.intersectionRatio > 0.3 &&
-            !viewedAds.has(entry.target) &&
-            !isProcessingAd &&
-            performance.now() >= pausedUntil &&
-            adsProcessed < maxAdsToProcess
-          ) {
-            isProcessingAd = true;
-            if (Math.random() < 0.05) {
-              console.log('[HumanScroll] Ad ignored (5% skip):', entry.target.id || entry.target.className);
-              viewedAds.add(entry.target);
-              isProcessingAd = false;
-              return;
-            }
-            console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className);
-            await scrollAdToCenter(entry.target);
+  }, MAX_PAGE_TIME_MS);
+  await waitForAdsToLoad();
+  const adSelectors = '#gpt-rect1, #gpt-passback2, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
+  const adContainers = Array.from(document.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
+  const adIframes = Array.from(document.querySelectorAll('iframe')).filter(f => {
+    try {
+      return f.offsetHeight > 50 && f.offsetWidth > 100 && f.src && f.src !== 'about:blank';
+    } catch {
+      return false;
+    }
+  });
+  const allAds = [...adContainers, ...adIframes];
+  if (allAds.length) {
+    console.log('[HumanScroll] Found', allAds.length, 'ads for pausing/centering.');
+    const viewedAds = new Set();
+    let isProcessingAd = false;
+    const maxAdsToProcess = randInt(2, 3);
+    let adsProcessed = 0;
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(async entry => {
+        if (
+          entry.isIntersecting &&
+          entry.intersectionRatio > 0.3 &&
+          !viewedAds.has(entry.target) &&
+          !isProcessingAd &&
+          performance.now() >= pausedUntil &&
+          adsProcessed < maxAdsToProcess
+        ) {
+          isProcessingAd = true;
+          if (Math.random() < 0.05) {
+            console.log('[HumanScroll] Ad ignored (5% skip):', entry.target.id || entry.target.className);
             viewedAds.add(entry.target);
-            adsProcessed++;
-            simulateHover();
-            const pauseDuration = 5000;
-            pausedUntil = performance.now() + pauseDuration;
-            console.log('[HumanScroll] Pausing for 5s (', adsProcessed, '/', maxAdsToProcess, 'ads processed).');
-            setTimeout(() => {
-              isProcessingAd = false;
-            }, pauseDuration);
+            isProcessingAd = false;
+            return;
           }
-        });
-      }, { threshold: 0.3 });
-      allAds.forEach(ad => observer.observe(ad));
-    }
-    console.log('[HumanScroll] Starting human-like scrolling');
-    runScrollsUntilBottomThenAct(pageStartTime);
-  }, START_DELAY_MS);
+          console.log('[HumanScroll] Ad visible:', entry.target.id || entry.target.className);
+          await scrollAdToCenter(entry.target);
+          viewedAds.add(entry.target);
+          adsProcessed++;
+          simulateHover();
+          const pauseDuration = 5000;
+          pausedUntil = performance.now() + pauseDuration;
+          console.log('[HumanScroll] Pausing for 5s (', adsProcessed, '/', maxAdsToProcess, 'ads processed).');
+          setTimeout(() => {
+            isProcessingAd = false;
+          }, pauseDuration);
+        }
+      });
+    }, { threshold: 0.3 });
+    allAds.forEach(ad => observer.observe(ad));
+  }
+  console.log('[HumanScroll] Starting human-like scrolling');
+  runScrollsUntilBottomThenAct(pageStartTime);
+}, START_DELAY_MS);
 })();
