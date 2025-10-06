@@ -66,7 +66,7 @@
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
   const SCROLL_DUR_MIN_MS  = 2000, SCROLL_DUR_MAX_MS  = 4000; // 2–4s
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 cycles
-  const READ_PAUSE_MIN_MS  = 3000, READ_PAUSE_MAX_MS  = 4000; // 3–4s
+  const READ_PAUSE_MIN_MS  = 5000, READ_PAUSE_MAX_MS  = 7000; // 3–4s
   const BOTTOM_CONFIRM_MS  = 5000; // 5s
 
   const firedPercents = new Set();
