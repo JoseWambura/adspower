@@ -548,45 +548,50 @@ if (adIframes.length) {
   const maxAdsToProcess = randInt(2, 3);
   let adsProcessed = 0;
 
+const mainAdContainers = document.querySelectorAll('#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1');
+
+if (mainAdContainers.length) {
+  console.log('[HumanScroll] Found', mainAdContainers.length, 'main ad containers');
+
   const observer = new IntersectionObserver(entries => {
-  entries.forEach(async entry => {
-    const ad = entry.target;
-    const now = performance.now();
+    entries.forEach(async entry => {
+      const ad = entry.target;
+      const now = performance.now();
 
-    if (
-      entry.isIntersecting &&
-      entry.intersectionRatio > 0.3 &&
-      !viewedAds.has(ad) &&
-      !isProcessingAd &&
-      now >= pausedUntil &&
-      adsProcessed < maxAdsToProcess
-    ) {
-      isProcessingAd = true;
+      if (
+        entry.isIntersecting &&
+        entry.intersectionRatio > 0.3 &&
+        !viewedAds.has(ad) &&
+        !isProcessingAd &&
+        now >= pausedUntil &&
+        adsProcessed < maxAdsToProcess
+      ) {
+        isProcessingAd = true;
 
-      console.log('[HumanScroll] Ad visible, scrolling to center:', ad.id || ad.className);
+        console.log('[HumanScroll] Main ad visible:', ad.id || ad.className);
 
-      await scrollAdToCenter(ad, 100); // offset 100px down, optional
+        await scrollAdToCenter(ad, offsetFromCenter);
 
-      viewedAds.add(ad);
-      adsProcessed++;
+        viewedAds.add(ad);
+        adsProcessed++;
 
-      simulateHover();
+        simulateHover(); // optional
 
-      const pauseDuration = randInt(7000, 11000);
-      pausedUntil = now + pauseDuration;
+        const pauseDuration = randInt(7000, 11000);
+        pausedUntil = performance.now() + pauseDuration;
 
-      console.log(`[HumanScroll] Pausing for ${(pauseDuration / 1000).toFixed(2)} seconds`);
+        console.log(`[HumanScroll] Pausing for ${(pauseDuration / 1000).toFixed(1)}s after centering ad`);
 
-      setTimeout(() => {
-        isProcessingAd = false;
-      }, pauseDuration);
-    }
-  });
-}, { threshold: 0.3 });
+        setTimeout(() => {
+          isProcessingAd = false;
+        }, pauseDuration);
+      }
+    });
+  }, { threshold: 0.3 });
 
-
- adContainers.forEach(ad => observer.observe(ad));
+  mainAdContainers.forEach(ad => observer.observe(ad));
 }
+
 
 
   /******************************************************************
