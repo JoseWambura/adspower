@@ -175,24 +175,21 @@
     }, randInt(1200, 1800));
   }
 
-  // Final scroll + nav flow
   function scrollToBottomThenNavigate() {
-    let scrolls = 0;
-    const maxScrolls = 6;
-
-    (function loop() {
-      if (scrolls >= maxScrolls) {
-        console.log('[HumanScroll] Finished scrolling. Navigating to recent post...');
-        navigateToRecentPost();
-        return;
-      }
-
-      doOneScrollCycle().then(() => {
-        scrolls++;
-        loop();
-      });
-    })();
+  function isAtBottom() {
+    return (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 50);
   }
+
+  (function loop() {
+    if (isAtBottom()) {
+      console.log('[HumanScroll] Reached bottom. Navigating to recent post...');
+      navigateToRecentPost();
+      return;
+    }
+
+    doOneScrollCycle().then(loop);
+  })();
+}
 
   // Start script
   const START_DELAY = randInt(15000, 20000);
