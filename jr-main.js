@@ -79,9 +79,9 @@
     }
   })();
 
-  const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 15–20s
+  const START_DELAY_MS    = Math.floor(Math.random() * (22000 - 20000 + 1)) + 18000; // 15–20s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 3000, SCROLL_DUR_MAX_MS  = 4000;
+  const SCROLL_DUR_MIN_MS  = 2000, SCROLL_DUR_MAX_MS  = 3000;
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 6–7 cycles
   const READ_PAUSE_MIN_MS  = 5000,  READ_PAUSE_MAX_MS  = 7000;
   const BOTTOM_CONFIRM_MS  = 8000;
@@ -383,7 +383,7 @@
     return new Promise((resolve) => {
       console.log('[AdWait] Waiting for ads to load...');
       let checks = 0;
-      const maxChecks = 30; // 30 seconds max wait
+      const maxChecks = 10; // 30 seconds max wait
       
       function checkAds() {
         checks++;
