@@ -86,7 +86,7 @@
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 cycles
   const READ_PAUSE_MIN_MS = 3000, READ_PAUSE_MAX_MS = 4000; // 3–4s
   const BOTTOM_CONFIRM_MS = 5000; // 5s
-  const BACK_FORTH_PROB = 0.10; // 10% chance for back-and-forth
+  const BACK_FORTH_PROB = 0; // 10% chance for back-and-forth
 
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
   function atBottom(threshold = 2) {
