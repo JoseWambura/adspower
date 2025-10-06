@@ -1,428 +1,205 @@
 // ==UserScript==
-// @name         JR Sports: Human-like Scroll + Recent Posts Random Nav, Close @13
+// @name         JR Sports: Human Scroll + Recent Post Nav (8 Pages Max)
 // @namespace    http://tampermonkey.net/
-// @version      3.8
-// @description  Human-like scroll, then ONLY open a random "Recent Posts" link (no search/category links). Tracks visited recent posts per tab (no repeats) and sends a GA event before navigation. Enforces a 13-page limit and closes.
+// @version      4.0
+// @description  Human-like scroll, wait for ads, then navigate to a random recent post. Limit to 8 pages. Logs current page number.
 // @match        *://jrsports.click/*
-// @run-at       document-start
-// @noframes
+// @run-at       document-idle
 // @grant        none
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  /******************************************************************
-   * 0) Navigation counter & auto-close after 13
-   ******************************************************************/
+  const MAX_PAGES = 8;
   const NAV_KEY = '__hs_nav_count';
+
   function getNavCount() {
-    try { return parseInt(sessionStorage.getItem(NAV_KEY) || '0', 10) || 0; } catch { return 0; }
+    try {
+      return parseInt(sessionStorage.getItem(NAV_KEY) || '0', 10) || 0;
+    } catch {
+      return 0;
+    }
   }
+
   function setNavCount(n) {
-    try { sessionStorage.setItem(NAV_KEY, String(n)); } catch {}
+    try {
+      sessionStorage.setItem(NAV_KEY, String(n));
+    } catch {}
   }
+
   function beforeNavigateIncrement() {
     const n = getNavCount() + 1;
     setNavCount(n);
-    if (n >= 13) {
-      console.log('[HumanScroll] Navigation count reached', n, '— will attempt to close on next page load.');
-    } else {
-      console.log('[HumanScroll] Navigation count =', n);
+    console.log(`[HumanScroll] Navigating to page ${n} of ${MAX_PAGES}`);
+    if (n >= MAX_PAGES) {
+      console.warn(`[HumanScroll] Page limit (${MAX_PAGES}) reached.`);
     }
   }
-  function tryCloseTab(reason) {
-    console.log('[HumanScroll] Attempting to close tab (' + reason + ')…');
 
-    // Stop network activity and blank the page (works even when window.close() is blocked)
+  function tryCloseTab(reason) {
+    console.warn(`[HumanScroll] Closing tab (${reason})`);
     try { window.stop(); } catch {}
     try {
-      document.documentElement.innerHTML = '';
+      document.body.innerHTML = '';
       document.title = 'Done';
-      document.documentElement.style.background = '#fff';
+      document.body.style.background = '#fff';
     } catch {}
 
-    // Best-effort navigate to inert page
     try { location.replace('about:blank'); } catch {}
     setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
 
-    // If the tab was opened by script, these may actually close it
     try { window.close(); } catch {}
-    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
+    setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 200);
   }
 
-  (function maybeCloseOnLoad() {
-    const n = getNavCount();
-    if (n >= 13) {
-      setTimeout(() => tryCloseTab('limit reached on load (>=13)'), 1200);
-    }
-  })();
-
-  /******************************************************************
-   *  A) IMAGE CONTROL - DISABLED due to CSP conflicts
-   ******************************************************************/
-  console.log('[HumanScroll] Image blocking disabled - CSP handles image restrictions');
-
-  /******************************************************************
-   *  B) HUMAN-LIKE SCROLLER
-   ******************************************************************/
-  (function () {
-    function ordinal(n) { const j = n % 10, k = n % 100; if (j === 1 && k !== 11) return n + 'st'; if (j === 2 && k !== 12) return n + 'nd'; if (j === 3 && k !== 13) return n + 'rd'; return n + 'th'; }
-    try {
-      const pv = (parseInt(sessionStorage.getItem('pv_count') || '0', 10) + 1);
-      sessionStorage.setItem('pv_count', String(pv));
-      window.__pageviews_in_tab = pv;
-      console.log('[HumanScroll]', 'This is the ' + ordinal(pv) + ' page load in this tab.');
-    } catch (e) {
-      console.log('[HumanScroll]', 'sessionStorage unavailable; treating as 1st page load.');
-      window.__pageviews_in_tab = 1;
-    }
-  })();
-
-  const START_DELAY_MS    = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 15–20s
-  const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const SCROLL_DUR_MIN_MS  = 5000, SCROLL_DUR_MAX_MS  = 7000;
-  const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 6–7 cycles
-  const READ_PAUSE_MIN_MS  = 10000,  READ_PAUSE_MAX_MS  = 12000;
-  const BOTTOM_CONFIRM_MS  = 10000;
-
-  const firedPercents = new Set();
-  const BREAKPOINTS = [25, 50, 75, 90, 100];
-
-  function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
-  function atBottom(threshold) {
-    threshold = threshold || 2;
-    const y = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
-    const view = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || 0;
-    const doc = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    return y + view >= doc - threshold;
-  }
-  function getPercentScrolled() {
-    const y = window.pageYOffset || document.documentElement.scrollTop || 0;
-    const view = window.innerHeight || document.documentElement.clientHeight || 0;
-    const full = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    const pos = Math.min(full, y + view);
-    return Math.max(0, Math.min(100, Math.round((pos / full) * 100)));
-  }
-  function sendScrollDepth(percent) {
-    if (firedPercents.has(percent)) return; firedPercents.add(percent);
-    if (typeof window.gtag === 'function') { window.gtag('event', 'scroll_depth', { percent }); }
-    else if (Array.isArray(window.dataLayer)) { window.dataLayer.push({ event: 'scroll_depth', percent, page_location: location.href, page_title: document.title }); }
-  }
-  function checkAndSendDepth() {
-    const pct = getPercentScrolled();
-    for (let i = 0; i < BREAKPOINTS.length; i++) {
-      if (pct >= BREAKPOINTS[i]) sendScrollDepth(BREAKPOINTS[i]);
-    }
-  }
-  window.addEventListener('scroll', function () {
-    if (checkAndSendDepth._t) cancelAnimationFrame(checkAndSendDepth._t);
-    checkAndSendDepth._t = requestAnimationFrame(checkAndSendDepth);
-  }, { passive: true });
-
-  function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
-  function animateScrollByPx(totalPx, durationMs) {
-    return new Promise(function (resolve) {
-      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      const startT = performance.now();
-      let lastY  = startY;
-      (function frame(now) {
-        const elapsed  = now - startT;
-        const t        = Math.min(1, elapsed / durationMs);
-        const progress = easeInOutQuad(t);
-        const targetY  = startY + totalPx * progress;
-        const delta    = targetY - lastY;
-        if (atBottom()) { resolve(); return; }
-        window.scrollBy(0, delta);
-        lastY = targetY;
-        if (t < 1) requestAnimationFrame(frame);
-        else resolve();
-      })(performance.now());
-    });
+  if (getNavCount() >= MAX_PAGES) {
+    setTimeout(() => tryCloseTab('page limit hit on load'), 1000);
+    return;
   }
 
-  function doOneScrollCycle() {
-    const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
-    const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
-    return animateScrollByPx(dist, dur).then(function () {
-      checkAndSendDepth();
-      return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
-    });
-  }
-
-  function confirmBottomStable(cb) {
-    const initialHeight = Math.max(
-      document.body.scrollHeight, document.documentElement.scrollHeight,
-      document.body.offsetHeight, document.documentElement.offsetHeight,
-      document.body.clientHeight, document.documentElement.clientHeight
-    );
-    setTimeout(function () {
-      if (!atBottom()) return;
-      const newHeight = Math.max(
-        document.body.scrollHeight, document.documentElement.scrollHeight,
-        document.body.offsetHeight, document.documentElement.offsetHeight,
-        document.body.clientHeight, document.documentElement.clientHeight
-      );
-      if (Math.abs(newHeight - initialHeight) < 4) cb();
-    }, BOTTOM_CONFIRM_MS);
-  }
-
-  /******************************************************************
-   *  C) Recent Posts ONLY — rotation & GA event
-   ******************************************************************/
-  const RECENT_POOL_KEY = '__hs_recent_pool_v1';  // session-scoped
-  const RECENT_VISITED_KEY = '__hs_recent_visited_v1'; // session-scoped
-
-  function sameHost(url) { try { return new URL(url, location.href).host === location.host; } catch { return false; } }
-  function isGoodHref(href) {
-    if (!href) return false;
-    const s = href.trim().toLowerCase();
-    if (!s) return false;
-    if (s.startsWith('#') || s.startsWith('javascript:') || s.startsWith('mailto:') || s.startsWith('tel:')) return false;
-    return true;
-  }
-
-  // Collect recent posts anchors from common "Recent Posts" widgets (including your sample)
-  function getRecentPostLinks() {
-    const recentSelectors = [
-      'aside.widget_recent_entries a.wp-block-latest-posts__post-title',
-      'aside.widget_recent_entries .wp-block-latest-posts__list a',
-      '.wp-block-latest-posts__list a.wp-block-latest-posts__post-title',
-      // fallback: any li under recent posts list
-      'aside.widget_recent_entries .wp-block-latest-posts__list li > a'
-    ];
-    let links = [];
-    recentSelectors.forEach(sel => {
-      links = links.concat(Array.from(document.querySelectorAll(sel)));
-    });
-    // de-duplicate by href and filter
-    const seen = new Set();
-    const filtered = [];
-    for (const a of links) {
-      const href = a.getAttribute('href') || a.href || '';
-      if (!isGoodHref(href)) continue;
-      try {
-        const abs = new URL(href, location.href).href;
-        if (!sameHost(abs)) continue;
-        if (seen.has(abs)) continue;
-        seen.add(abs);
-        filtered.push({ el: a, href: abs, text: (a.textContent || '').trim() });
-      } catch {}
-    }
-    return filtered;
-  }
-
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  }
-
-  function loadVisited() {
-    try { return new Set(JSON.parse(sessionStorage.getItem(RECENT_VISITED_KEY) || '[]')); } catch { return new Set(); }
-  }
-  function saveVisited(set) {
-    try { sessionStorage.setItem(RECENT_VISITED_KEY, JSON.stringify(Array.from(set))); } catch {}
-  }
-
-  function pickRecentTarget() {
-    const candidates = getRecentPostLinks().map(o => o.href);
-    if (!candidates.length) return null;
-    const visited = loadVisited();
-
-    // Filter out already visited in this tab session
-    let pool = candidates.filter(h => !visited.has(h));
-
-    // If everything is visited, reset the pool (start a fresh rotation)
-    if (!pool.length) {
-      visited.clear();
-      saveVisited(visited);
-      pool = candidates.slice();
-    }
-
-    // Random choice
-    const target = pool[Math.floor(Math.random() * pool.length)];
-    visited.add(target);
-    saveVisited(visited);
-    return target;
-  }
-
-  function sendGARecentClick(targetUrl, label) {
-    label = label || 'click';
-    try {
-      if (typeof window.gtag === 'function') {
-        window.gtag('event', label, { link_url: targetUrl, page_location: location.href, page_title: document.title });
-      } else if (Array.isArray(window.dataLayer)) {
-        window.dataLayer.push({ event: label, link_url: targetUrl, page_location: location.href, page_title: document.title });
-      }
-    } catch (e) {
-      // no-op
-    }
-  }
-
-  function navigateToRecentTarget() {
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before target nav'); return; }
-    const target = pickRecentTarget();
-    if (!target) {
-      console.warn('[HumanScroll] No Recent Posts found. Considering Read More fallback…');
-      tryClickReadMoreFallback();
-      return;
-    }
-    const delay = Math.floor(Math.random() * (1600 - 800 + 1)) + 800;
-    console.log('[HumanScroll] Recent post chosen:', target, '… navigating in ~', delay, 'ms');
-    sendGARecentClick(target, 'click');
-    setTimeout(() => {
-      beforeNavigateIncrement();
-      location.href = target;
-    }, delay);
-  }
-
-  /******************************************************************
-   *  D) Read More fallback (only if no Recent Posts found)
-   *     - Priority remains: RECENT POSTS > Read More
-   ******************************************************************/
-  function createFakeCursor() {
-    const cursor = document.createElement('div');
-    cursor.style.position = 'fixed';
-    cursor.style.top = '0px';
-    cursor.style.left = '0px';
-    cursor.style.width = '14px';
-    cursor.style.height = '14px';
-    cursor.style.border = '2px solid #333';
-    cursor.style.borderRadius = '50%';
-    cursor.style.background = 'rgba(255,255,255,0.85)';
-    cursor.style.zIndex = '999999';
-    cursor.style.pointerEvents = 'none';
-    cursor.style.transition = 'top 0.25s linear, left 0.25s linear';
-    document.body.appendChild(cursor);
-    return cursor;
-  }
-  function moveCursorTo(cursor, x, y) { cursor.style.left = x + 'px'; cursor.style.top = y + 'px'; }
-  function removeCursor(cursor) { if (cursor && cursor.parentNode) cursor.parentNode.removeChild(cursor); }
-
-  function findReadMoreLinks() {
-    const all = Array.from(document.querySelectorAll('a[href]'));
-    const res = [];
-    for (const a of all) {
-      const t = (a.textContent || '').trim().toLowerCase();
-      const href = a.getAttribute('href') || '';
-      if (!isGoodHref(href)) continue;
-      if (t.includes('read more') || a.classList.contains('more-link') || /read-?more/i.test(href)) {
-        try {
-          const abs = new URL(href, location.href).href;
-          if (!sameHost(abs)) continue;
-          res.push(a);
-        } catch {}
-      }
-    }
-    return res;
-  }
-
-  function tryClickReadMoreFallback() {
-    const links = findReadMoreLinks();
-    if (!links.length) {
-      console.warn('[HumanScroll] No Read More links found. Staying on page.');
-      return;
-    }
-    const link = links[Math.floor(Math.random() * links.length)];
-    const rect = link.getBoundingClientRect();
-    const targetX = rect.left + Math.min(rect.width - 2, Math.max(2, rect.width * 0.6));
-    const targetY = rect.top + Math.min(rect.height - 2, Math.max(2, rect.height * 0.5));
-    const cursor = createFakeCursor();
-    moveCursorTo(cursor, 60, 60);
-
-    // small wander
-    setTimeout(() => {
-      moveCursorTo(cursor, targetX, targetY);
-      setTimeout(() => {
-        const url = link.getAttribute('href') || link.href || '';
-        try { sendGARecentClick(new URL(url, location.href).href, 'click'); } catch {}
-        console.log('[HumanScroll] Clicking Read More fallback:', url);
-        beforeNavigateIncrement();
-        try { link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
-        catch (e) { link.click(); }
-        removeCursor(cursor);
-      }, 300);
-    }, 300);
-  }
-
-  /******************************************************************
-   *  E) Flow — scroll to bottom, then go to Random Recent Post (or Read More)
-   ******************************************************************/
-  function runScrollsUntilBottomThenAct() {
-    let cyclesDone = 0;
-    (function loop() {
-      if (cyclesDone < MIN_SCROLL_CYCLES || !atBottom()) {
-        doOneScrollCycle().then(function () {
-          cyclesDone++;
-          if (atBottom() && cyclesDone >= MIN_SCROLL_CYCLES) {
-            confirmBottomStable(function () {
-              checkAndSendDepth();
-              console.log('[HumanScroll] Reached bottom after', cyclesDone, 'cycles. Going to a random Recent Post…');
-              navigateToRecentTarget();
-            });
-          } else { loop(); }
-        });
-      } else { doOneScrollCycle().then(loop); }
-    })();
-  }
-  /******************************************************************
-   *  G) AD LOADING WAIT - Ensure ads load before scrolling
-   ******************************************************************/
+  // Wait for ads
   function waitForAdsToLoad() {
     return new Promise((resolve) => {
       console.log('[AdWait] Waiting for ads to load...');
       let checks = 0;
-      const maxChecks = 30; // 30 seconds max wait
-      
+      const maxChecks = 30;
+
       function checkAds() {
         checks++;
-        
-        // Check if major ad containers have content
-        const mainAdContainers = document.querySelectorAll('#gpt-passback2, #gpt-passback3, #gpt-passback4, #gpt-rect1');
-        const loadedAds = Array.from(mainAdContainers).filter(container => {
-          return container.innerHTML.length > 500 && container.offsetHeight > 50;
-        });
-        
-        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded`);
-        
-        // If most ads are loaded OR we've waited long enough, proceed
+        const adSelectors = ['#gpt-passback2', '#gpt-passback3', '#gpt-passback4', '#gpt-rect1'];
+        const ads = adSelectors.map(sel => document.querySelector(sel)).filter(el => el);
+        const loadedAds = ads.filter(ad => ad.innerHTML.length > 500 && ad.offsetHeight > 50);
+
+        console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${ads.length} ads loaded`);
+
         if (loadedAds.length >= 2 || checks >= maxChecks) {
-          console.log(`[AdWait] Proceeding - ${loadedAds.length} ads loaded after ${checks} seconds`);
+          console.log('[AdWait] Proceeding after ad check');
           resolve();
         } else {
           setTimeout(checkAds, 1000);
         }
       }
-      
+
       checkAds();
     });
   }
-  /******************************************************************
-   *  F) Kickoff
-   ******************************************************************/
-    /******************************************************************
-   *  F) Kickoff - Wait for ads then scroll
-   ******************************************************************/
-  setTimeout(async function () {
-    checkAndSendDepth();
-    if (getNavCount() >= 13) { tryCloseTab('limit reached before scrolling'); return; }
-    
-    // WAIT FOR ADS TO LOAD BEFORE SCROLLING
+
+  // Scroll logic
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+
+  function animateScrollByPx(totalPx, durationMs) {
+    return new Promise(resolve => {
+      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+      const startT = performance.now();
+      let lastY = startY;
+
+      (function step(now) {
+        const elapsed = now - startT;
+        const t = Math.min(1, elapsed / durationMs);
+        const progress = easeInOutQuad(t);
+        const targetY = startY + totalPx * progress;
+        const delta = targetY - lastY;
+
+        if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight) {
+          resolve();
+          return;
+        }
+
+        window.scrollBy(0, delta);
+        lastY = targetY;
+
+        if (t < 1) {
+          requestAnimationFrame(step);
+        } else {
+          resolve();
+        }
+      })(performance.now());
+    });
+  }
+
+  function doOneScrollCycle() {
+    const dist = randInt(800, 1200);
+    const dur = randInt(5000, 7000);
+    return animateScrollByPx(dist, dur).then(() => {
+      return new Promise(r => setTimeout(r, randInt(10000, 12000)));
+    });
+  }
+
+  // Recent post logic
+  function getRecentPostLinks() {
+    const selectors = [
+      'aside.widget_recent_entries a',
+      '.wp-block-latest-posts__list a'
+    ];
+    let anchors = [];
+    selectors.forEach(sel => {
+      anchors = anchors.concat(Array.from(document.querySelectorAll(sel)));
+    });
+    const links = anchors
+      .map(a => a.href)
+      .filter(h => h && h.startsWith(location.origin));
+    return [...new Set(links)];
+  }
+
+  function pickRecentTarget() {
+    const visited = new Set(JSON.parse(sessionStorage.getItem('__recent_visited') || '[]'));
+    let pool = getRecentPostLinks().filter(url => !visited.has(url));
+
+    if (pool.length === 0) {
+      visited.clear();
+      pool = getRecentPostLinks();
+    }
+
+    const target = pool[Math.floor(Math.random() * pool.length)];
+    visited.add(target);
+    sessionStorage.setItem('__recent_visited', JSON.stringify([...visited]));
+    return target;
+  }
+
+  function navigateToRecentPost() {
+    const target = pickRecentTarget();
+    if (!target) {
+      console.warn('[HumanScroll] No recent post found. Staying on page.');
+      return;
+    }
+    setTimeout(() => {
+      beforeNavigateIncrement();
+      location.href = target;
+    }, randInt(1200, 1800));
+  }
+
+  // Final scroll + nav flow
+  function scrollToBottomThenNavigate() {
+    let scrolls = 0;
+    const maxScrolls = 6;
+
+    (function loop() {
+      if (scrolls >= maxScrolls) {
+        console.log('[HumanScroll] Finished scrolling. Navigating to recent post...');
+        navigateToRecentPost();
+        return;
+      }
+
+      doOneScrollCycle().then(() => {
+        scrolls++;
+        loop();
+      });
+    })();
+  }
+
+  // Start script
+  const START_DELAY = randInt(15000, 20000);
+  setTimeout(async () => {
+    console.log(`[HumanScroll] Starting after delay (${START_DELAY} ms)`);
     await waitForAdsToLoad();
-    
-    console.log('[HumanScroll] Starting human-like scrolling after ads loaded');
-    runScrollsUntilBottomThenAct();
-  }, START_DELAY_MS);
+    scrollToBottomThenNavigate();
+  }, START_DELAY);
 
 })();
