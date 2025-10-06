@@ -1,175 +1,139 @@
-(function(){
+<script>
+(function () {
   'use strict';
-  document.addEventListener('DOMContentLoaded', () => {
-    const MAX_PAGE_TIME_MS = 90000;   // 90 s
-    const START_DELAY_MS = 20000 + Math.random() * 5000; // 20–25 s
-    const adWaitTimeout = 5000;       // 5 s max to wait for ad
-    const BOTTOM_THRESHOLD = 20;      // allow 20px slack for bottom detection
 
-    function tryCloseTab(reason) {
-      console.log('[HumanScroll] Closing tab:', reason);
-      try { window.stop(); } catch {}
-      try {
-        document.documentElement.innerHTML = '';
-        document.title = 'Done';
-        document.documentElement.style.background = '#fff';
-      } catch {}
-      try { location.replace('about:blank'); } catch {}
-      setTimeout(() => { try { location.href = 'about:blank'; } catch {} }, 150);
-      try { window.close(); } catch {}
-      setTimeout(() => { try { window.open('', '_self'); window.close(); } catch {} }, 150);
-    }
+  /**************************************************************
+   * SETTINGS
+   **************************************************************/
+  const MAX_PAGE_TIME_MS = 90000; // 90s absolute cap
+  const START_DELAY_MS = Math.floor(Math.random() * 5000) + 20000; // 20-25s delay
+  const SCROLL_CYCLES = 4;
+  const SCROLL_DIST_MIN = 800;
+  const SCROLL_DIST_MAX = 1200;
+  const SCROLL_DURATION_MIN = 3000;
+  const SCROLL_DURATION_MAX = 4000;
+  const READ_PAUSE_MIN = 3000;
+  const READ_PAUSE_MAX = 4000;
 
-    function getNavCount() {
-      try { return parseInt(sessionStorage.getItem('__hs_nav_count')||'0',10) || 0; } catch { return 0; }
-    }
-    function setNavCount(n) {
-      try { sessionStorage.setItem('__hs_nav_count', String(n)); } catch {}
-    }
-    function getNavLimit() {
-      try {
-        const lim = parseInt(sessionStorage.getItem('__hs_nav_limit'),10);
-        if (lim) return lim;
-      } catch {}
-      try { sessionStorage.setItem('__hs_nav_limit','3'); } catch {}
-      return 3;
-    }
-    function beforeNavigate() {
-      const cnt = getNavCount()+1;
-      setNavCount(cnt);
-      console.log('[HumanScroll] Nav count:', cnt);
-      if (cnt >= getNavLimit()) tryCloseTab('nav limit reached');
-    }
+  const pageStart = performance.now();
 
-    function atBottom() {
-      const y = window.pageYOffset || document.documentElement.scrollTop || 0;
-      const view = window.innerHeight || document.documentElement.clientHeight;
-      const doc = Math.max(
-        document.body.scrollHeight, document.documentElement.scrollHeight,
-        document.body.offsetHeight, document.documentElement.offsetHeight,
-        document.body.clientHeight, document.documentElement.clientHeight
-      );
-      return y + view >= doc - BOTTOM_THRESHOLD;
-    }
+  function rand(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
 
-    function waitForAdsToLoad() {
-      return new Promise((resolve) => {
-        let resolved = false;
-        const el = document.querySelector('#gpt-rect1');
-        function check() {
-          if (resolved) return;
-          if (el && el.innerHTML.length > 200 && el.offsetHeight > 50) {
-            resolved = true;
-            console.log('[HumanScroll] Ad detected, proceeding');
-            resolve();
-            return;
-          }
-        }
-        // initial check and periodic checks
-        check();
-        const interval = setInterval(check, 500);
-        // fallback after timeout
-        setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            console.warn('[HumanScroll] Ad wait timeout, proceeding anyway');
-            resolve();
-          }
-        }, adWaitTimeout);
-      });
-    }
+  function atBottom() {
+    const y = window.scrollY || window.pageYOffset;
+    const h = document.documentElement.scrollHeight;
+    const vh = window.innerHeight;
+    return y + vh >= h - 2;
+  }
 
-    function navigateFallback() {
-      // pick recent links or Go Home
-      const links = Array.from(document.querySelectorAll('a')).filter(a => {
-        const txt = (a.textContent||'').toLowerCase();
-        return txt.includes('read more') || a.classList.contains('more-link');
-      });
-      if (links.length) {
-        const link = links[Math.floor(Math.random()*links.length)];
-        console.log('[HumanScroll] Fallback click to:', link.href);
-        beforeNavigate();
-        try { link.click(); } catch { location.href = link.href; }
-      } else {
-        console.warn('[HumanScroll] No fallback link, going to homepage');
-        beforeNavigate();
-        location.href = '/';
-      }
-    }
-
-    async function runScrollAndThenNavigate(startTime) {
-      // if page too short, directly fallback
-      if (document.body.scrollHeight <= window.innerHeight + 50) {
-        console.log('[HumanScroll] Page too short to scroll, immediate fallback');
-        navigateFallback();
-        return;
-      }
-
-      // do scroll cycles with max time guard
-      const MIN_CYCLES = 3;
-      let cycles = 0;
-      const SCROLL_DIST_MIN = 800, SCROLL_DIST_MAX = 1200;
-      const SCROLL_DUR_MIN = 3000, SCROLL_DUR_MAX = 4000;
-
-      function rand(min, max) {
-        return min + Math.floor(Math.random() * (max - min + 1));
-      }
-      function animateScroll(dist, dur) {
-        return new Promise(res => {
-          const startY = window.pageYOffset;
-          const t0 = performance.now();
-          function frame(t) {
-            const elapsed = t - t0;
-            const frac = Math.min(1, elapsed / dur);
-            const y = startY + dist * frac;
-            window.scrollTo(0, y);
-            if (frac < 1) requestAnimationFrame(frame);
-            else res();
-          }
-          requestAnimationFrame(frame);
-        });
-      }
-
-      while (cycles < MIN_CYCLES || !atBottom()) {
-        if (performance.now() - startTime > MAX_PAGE_TIME_MS) {
-          console.warn('[HumanScroll] Max scroll time exceeded, forcing fallback');
-          navigateFallback();
-          return;
-        }
-        const dist = rand(SCROLL_DIST_MIN, SCROLL_DIST_MAX);
-        const dur = rand(SCROLL_DUR_MIN, SCROLL_DUR_MAX);
-        await animateScroll(dist, dur);
-        cycles++;
-        if (atBottom()) break;
-        await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
-      }
-
-      // if bottom reached or cycles done
-      console.log('[HumanScroll] Scroll done, navigating');
-      navigateFallback();
-    }
-
-    // Kickoff
-    setTimeout(async () => {
+  function scrollByPx(pixels, duration) {
+    return new Promise(resolve => {
+      const start = window.scrollY || window.pageYOffset;
+      const end = start + pixels;
       const startTime = performance.now();
 
-      if (getNavCount() >= getNavLimit()) {
-        tryCloseTab('limit reached before start');
-        return;
+      function frame(now) {
+        const elapsed = now - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+        const current = start + (end - start) * eased;
+
+        window.scrollTo(0, current);
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          resolve();
+        }
       }
 
-      console.log('[HumanScroll] Kickoff after delay');
-      await waitForAdsToLoad();
+      requestAnimationFrame(frame);
+    });
+  }
 
-      // Global guard: after MAX_PAGE_TIME_MS, force fallback
-      setTimeout(() => {
-        console.warn('[HumanScroll] Global timeout reached, fallback');
-        navigateFallback();
-      }, MAX_PAGE_TIME_MS);
+  async function humanScroll() {
+    for (let i = 0; i < SCROLL_CYCLES; i++) {
+      if (performance.now() - pageStart >= MAX_PAGE_TIME_MS) {
+        console.warn('[HumanScroll] Timeout during scroll loop.');
+        break;
+      }
 
-      runScrollAndThenNavigate(startTime);
+      const dist = rand(SCROLL_DIST_MIN, SCROLL_DIST_MAX);
+      const dur = rand(SCROLL_DURATION_MIN, SCROLL_DURATION_MAX);
 
-    }, START_DELAY_MS);
+      console.log(`[HumanScroll] Scroll ${i + 1}: ${dist}px over ${dur}ms`);
+      await scrollByPx(dist, dur);
+      await new Promise(r => setTimeout(r, rand(READ_PAUSE_MIN, READ_PAUSE_MAX)));
 
-  });
+      if (atBottom()) {
+        console.log('[HumanScroll] Reached bottom.');
+        return true;
+      }
+    }
+    return atBottom();
+  }
+
+  function navigateToNext() {
+    const links = Array.from(document.querySelectorAll('a[href]'))
+      .filter(a => {
+        const href = a.getAttribute('href') || '';
+        if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+        return true;
+      });
+
+    const recent = links.find(a => /read-?more|recent/i.test(a.textContent || '') || /read-?more/i.test(a.href));
+    const target = recent || links.find(a => a.href && a.href !== location.href);
+
+    if (target) {
+      console.log('[HumanScroll] Navigating to', target.href);
+      location.href = target.href;
+    } else {
+      console.warn('[HumanScroll] No links found. Redirecting to /');
+      location.href = '/';
+    }
+  }
+
+  function tryCloseTab() {
+    console.warn('[HumanScroll] Max time reached — closing or redirecting');
+    try { window.close(); } catch {}
+    location.href = '/';
+  }
+
+  function enforceTimeout() {
+    setTimeout(() => {
+      console.warn('[HumanScroll] FORCE TIMEOUT — 90s reached');
+      navigateToNext(); // Try navigate
+      setTimeout(() => tryCloseTab(), 2000); // Fallback to close if still stuck
+    }, MAX_PAGE_TIME_MS - (performance.now() - pageStart));
+  }
+
+  async function start() {
+    console.log('[HumanScroll] Starting in', START_DELAY_MS, 'ms...');
+    enforceTimeout(); // Set 90s hard cap now
+    await new Promise(r => setTimeout(r, START_DELAY_MS));
+
+    const pageTooShort = document.body.scrollHeight <= window.innerHeight + 100;
+    if (pageTooShort) {
+      console.log('[HumanScroll] Page too short. Skipping scroll.');
+      navigateToNext();
+      return;
+    }
+
+    const scrolledToEnd = await humanScroll();
+    if (scrolledToEnd) {
+      console.log('[HumanScroll] Done scrolling. Navigating...');
+      navigateToNext();
+    } else {
+      console.warn('[HumanScroll] Scroll incomplete. Forcing navigation.');
+      navigateToNext();
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
 })();
+</script>
