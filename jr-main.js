@@ -442,21 +442,21 @@
   return new Promise(resolve => {
     console.log('[AdWait] Waiting for ads or DOM to load...');
     let checks = 0;
-    const maxChecks = 10; // 10s max
+    const maxChecks = 6; // 6s max to counter SunBrowser delays
     function checkAds() {
       checks++;
       const contentSelectors = '.entry-content, .inside-article, article';
       const content = document.querySelector(contentSelectors);
-      const adSelectors = '#gpt-rect1, #gpt-passback2, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
+      const adSelectors = '#gpt-passback2, #gpt-rect1, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
       const mainAdContainers = content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors));
+      const gptPassback2 = content ? content.querySelector('#gpt-passback2') : document.querySelector('#gpt-passback2');
       const gptRect1 = content ? content.querySelector('#gpt-rect1') : document.querySelector('#gpt-rect1');
-      const loadedAds = mainAdContainers.filter(container => {
-        return container.innerHTML.length > 500 && container.offsetHeight > 50;
-      });
+      const loadedAds = mainAdContainers.filter(container => container.innerHTML.length > 500 && container.offsetHeight > 50);
+      const isGptPassback2Loaded = gptPassback2 && gptPassback2.innerHTML.length > 500 && gptPassback2.offsetHeight >= 280;
       const isGptRect1Loaded = gptRect1 && gptRect1.innerHTML.length > 500 && gptRect1.offsetHeight >= 250;
-      console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads loaded, #gpt-rect1 loaded: ${!!isGptRect1Loaded}, DOM children: ${document.body.children.length}`);
-      if (isGptRect1Loaded || loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
-        console.log(`[AdWait] Proceeding - #gpt-rect1: ${!!isGptRect1Loaded}, ${loadedAds.length} ads loaded, ${checks} checks, DOM ready: ${document.body.children.length > 0}`);
+      console.log(`[AdWait] Check ${checks}: ${loadedAds.length}/${mainAdContainers.length} ads, #gpt-passback2: ${!!isGptPassback2Loaded}, #gpt-rect1: ${!!isGptRect1Loaded}, DOM children: ${document.body.children.length}`);
+      if (isGptPassback2Loaded || isGptRect1Loaded || loadedAds.length >= 2 || checks >= maxChecks || document.body.children.length > 0) {
+        console.log(`[AdWait] Proceeding - #gpt-passback2: ${!!isGptPassback2Loaded}, #gpt-rect1: ${!!isGptRect1Loaded}, ${loadedAds.length} ads, ${checks} checks`);
         resolve();
       } else {
         setTimeout(checkAds, 1000);
@@ -536,8 +536,9 @@
   await waitForAdsToLoad();
   const contentSelectors = '.entry-content, .inside-article, article';
   const content = document.querySelector(contentSelectors);
-  const adSelectors = '#gpt-rect1, #gpt-passback2, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
-  const adContainers = content ? Array.from(content.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50) : Array.from(document.querySelectorAll(adSelectors)).filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
+  const adSelectors = '#gpt-passback2, #gpt-rect1, #gpt-passback3, #gpt-passback4, .ad-container, .adsbygoogle';
+  const adContainers = (content ? Array.from(content.querySelectorAll(adSelectors)) : Array.from(document.querySelectorAll(adSelectors)))
+    .filter(c => c.innerHTML.length > 500 && c.offsetHeight > 50);
   const adIframes = Array.from(document.querySelectorAll('iframe')).filter(f => {
     try {
       return f.offsetHeight > 50 && f.offsetWidth > 100 && f.src && f.src !== 'about:blank';
@@ -579,6 +580,12 @@
           console.log('[HumanScroll] Pausing for 5s (', adsProcessed, '/', maxAdsToProcess, 'ads processed).');
           setTimeout(() => {
             isProcessingAd = false;
+            // Force navigation if page time exceeds 90s during ad pause
+            if (performance.now() - pageStartTime > MAX_PAGE_TIME_MS) {
+              console.log('[HumanScroll] Ad pause exceeded 90s. Forcing navigation.');
+              observer.disconnect();
+              navigateToRecentTarget();
+            }
           }, pauseDuration);
         }
       });
