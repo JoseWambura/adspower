@@ -129,34 +129,47 @@
   }, { passive: true });
 
   function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
-  function animateScrollByPx(totalPx, durationMs) {
-    return new Promise(function (resolve) {
-      const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
-      const startT = performance.now();
-      let lastY  = startY;
-      (function frame(now) {
-        const elapsed  = now - startT;
-        const t        = Math.min(1, elapsed / durationMs);
-        const progress = easeInOutQuad(t);
-        const targetY  = startY + totalPx * progress;
-        const delta    = targetY - lastY;
-        if (atBottom()) { resolve(); return; }
-        window.scrollBy(0, delta);
-        lastY = targetY;
-        if (t < 1) requestAnimationFrame(frame);
-        else resolve();
-      })(performance.now());
-    });
-  }
+ function animateScrollByPx(totalPx, durationMs) {
+  return new Promise(function (resolve) {
+    const startY = window.pageYOffset || document.documentElement.scrollTop || 0;
+    const startT = performance.now();
+    let lastY  = startY;
+    console.log(`[HumanScroll] Scroll start: ${totalPx}px over ${durationMs}ms`);
+    (function frame(now) {
+      const elapsed  = now - startT;
+      const t        = Math.min(1, elapsed / durationMs);
+      const progress = easeInOutQuad(t);
+      const targetY  = startY + totalPx * progress;
+      const delta    = targetY - lastY;
+      if (atBottom()) { 
+        const endT = performance.now();
+        console.log(`[HumanScroll] Scroll ended early at bottom after ${(endT - startT).toFixed(0)}ms`);
+        resolve(); 
+        return; 
+      }
+      window.scrollBy(0, delta);
+      lastY = targetY;
+      if (t < 1) requestAnimationFrame(frame);
+      else {
+        const endT = performance.now();
+        console.log(`[HumanScroll] Scroll finished after ${(endT - startT).toFixed(0)}ms`);
+        resolve();
+      }
+    })(performance.now());
+  });
+}
 
-  function doOneScrollCycle() {
-    const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
-    const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
-    return animateScrollByPx(dist, dur).then(function () {
-      checkAndSendDepth();
-      return new Promise(function (r) { setTimeout(r, randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS)); });
-    });
-  }
+function doOneScrollCycle() {
+  const dist = randInt(SCROLL_DIST_MIN_PX, SCROLL_DIST_MAX_PX);
+  const dur  = randInt(SCROLL_DUR_MIN_MS,  SCROLL_DUR_MAX_MS);
+  return animateScrollByPx(dist, dur).then(function () {
+    checkAndSendDepth();
+    const pauseDuration = randInt(READ_PAUSE_MIN_MS, READ_PAUSE_MAX_MS);
+    console.log(`[HumanScroll] Pause for ${pauseDuration}ms`);
+    return new Promise(function (r) { setTimeout(r, pauseDuration); });
+  });
+}
+
 
   function confirmBottomStable(cb) {
     const initialHeight = Math.max(
