@@ -84,18 +84,16 @@
     }
   })();
 
-  let pausedUntil = 0;
-  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s  const MAX_PAGE_TIME_MS = 90000; // 180s max (3 minutes)
+ let pausedUntil = 0;
+  const MIN_PAGE_TIME_MS = Math.floor(Math.random() * (90000 - 70000 + 1)) + 70000; // 70–90s
+  const MAX_PAGE_TIME_MS = 90000; // 90s max
   const START_DELAY_MS = Math.floor(Math.random() * (25000 - 20000 + 1)) + 20000; // 20–25s
   const SCROLL_DIST_MIN_PX = 800, SCROLL_DIST_MAX_PX = 1200;
-  const BURST_DIST_MIN_PX = 400, BURST_DIST_MAX_PX = 800;
   const SCROLL_DUR_MIN_MS = 5000, SCROLL_DUR_MAX_MS = 7000;
-  const BURST_DUR_MIN_MS = 1000, BURST_DUR_MAX_MS = 2000;
   const MIN_SCROLL_CYCLES = Math.floor(Math.random() * (5 - 4 + 1)) + 4; // 4–5 cycles
   const READ_PAUSE_MIN_MS = 4000, READ_PAUSE_MAX_MS = 6000; // 4–6s pauses
   const BOTTOM_CONFIRM_MS = 10000;
   const BACK_FORTH_PROB = 0.10; // 10% chance for back-and-forth
-  const BURST_PROB = 0.05; // 5% chance for burst scroll per cycle
 
   function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
   function atBottom(threshold) {
