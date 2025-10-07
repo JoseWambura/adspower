@@ -11,7 +11,7 @@
 (function () {
   'use strict';
 
-  const MAX_PAGES = 8;
+  const MAX_PAGES = randInt(8, 10);;
   const NAV_KEY = '__hs_nav_count';
 
   function getNavCount() {
