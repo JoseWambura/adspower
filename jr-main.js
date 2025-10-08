@@ -192,7 +192,7 @@
 }
 
   // Start script
-  const START_DELAY = randInt(20000, 25000);
+  const START_DELAY = randInt(25000, 29000);
   setTimeout(async () => {
     console.log(`[HumanScroll] Starting after delay (${START_DELAY} ms)`);
     await waitForAdsToLoad();
