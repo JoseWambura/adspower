@@ -4,7 +4,6 @@
   // --- Anti-Detection: Spoof Fingerprint to Match Proxy ---
   (function () {
     function spoofFingerprint(proxyOs, proxyTimezone) {
-      // User-Agent and Platform
       const userAgents = {
         windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
         macos: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'
@@ -14,7 +13,6 @@
       Object.defineProperty(navigator, 'platform', { value: proxyOs === 'windows' ? 'Win32' : 'MacIntel', configurable: true });
       console.log('[HumanScroll] Spoofed User-Agent:', selectedUA, 'Platform:', navigator.platform);
 
-      // Spoof Time Zone
       try {
         Object.defineProperty(Intl, 'DateTimeFormat', {
           value: function () {
@@ -27,11 +25,9 @@
         console.warn('[HumanScroll] Failed to spoof time zone:', e);
       }
 
-      // Spoof Language
       Object.defineProperty(navigator, 'language', { value: proxyTimezone.includes('America') ? 'en-US' : 'en-GB', configurable: true });
       Object.defineProperty(navigator, 'languages', { value: [proxyTimezone.includes('America') ? 'en-US' : 'en-GB', 'en'], configurable: true });
 
-      // Disable WebRTC
       try {
         Object.defineProperty(navigator, 'getUserMedia', { value: null, configurable: true });
         Object.defineProperty(navigator, 'webkitGetUserMedia', { value: null, configurable: true });
@@ -43,7 +39,6 @@
       }
     }
 
-    // Canvas/WebGL Noise for Fingerprint Randomization
     function spoofCanvasAndWebGL() {
       const originalGetContext = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function (type) {
@@ -51,14 +46,14 @@
         if (type === '2d' || type === 'webgl') {
           const originalFillRect = ctx.fillRect;
           ctx.fillRect = function (x, y, w, h) {
-            const noise = Math.random() * 0.02 - 0.01; // Subtle noise
+            const noise = Math.random() * 0.02 - 0.01;
             return originalFillRect.call(this, x + noise, y + noise, w, h);
           };
           const originalGetImageData = ctx.getImageData;
           ctx.getImageData = function (x, y, w, h) {
             const data = originalGetImageData.call(this, x, y, w, h);
             for (let i = 0; i < data.data.length; i += 4) {
-              data.data[i] += Math.floor(Math.random() * 3 - 1); // RGB noise
+              data.data[i] += Math.floor(Math.random() * 3 - 1);
               data.data[i + 1] += Math.floor(Math.random() * 3 - 1);
               data.data[i + 2] += Math.floor(Math.random() * 3 - 1);
             }
@@ -70,10 +65,8 @@
       console.log('[HumanScroll] Canvas/WebGL fingerprint randomized');
     }
 
-    // Simulate fetching proxy metadata (replace with Oxylabs API call)
     function getProxyMetadata() {
-      // Placeholder: Use Oxylabs API to fetch real metadata
-      return { os: 'windows', timezone: 'America/New_York' }; // Update based on proxy
+      return { os: 'windows', timezone: 'America/New_York' };
     }
 
     const proxyMetadata = getProxyMetadata();
@@ -103,41 +96,36 @@
 
   // ===== Config =====
   var START_DELAY_MS = Math.floor(Math.random() * (13000 - 10000 + 1)) + 10000;
-  var PAUSE_MIN_MS = 2500; // Increased for ad viewability and realistic dwells
-  var PAUSE_MAX_MS = 7000;
-  var DOWN_MIN_PX = 120;
-  var DOWN_MAX_PX = 400;
-  var UP_CHANCE = 0.20; // Increased to 20% for backtracking/re-reading
+  var PAUSE_MIN_MS = 1500; // Reduced for faster scrolling
+  var PAUSE_MAX_MS = 4000;
+  var DOWN_MIN_PX = 200; // Increased for fewer iterations
+  var DOWN_MAX_PX = 600;
+  var UP_CHANCE = 0.20;
   var UP_MIN_PX = 60;
-  var UP_MAX_PX = 250; // Larger up-scrolls for re-reading
+  var UP_MAX_PX = 250;
   var BOTTOM_CONFIRM_MS = 2000;
 
-  // Early exit probability (simulate quitting after 50-70% scroll)
-  var EARLY_EXIT_PROB = 0.30; // 30% chance to stop early and interact
-  var EARLY_EXIT_DEPTH_MIN = 50; // % scroll depth
+  var EARLY_EXIT_PROB = 0.50; // Increased to 50% for faster exits
+  var EARLY_EXIT_DEPTH_MIN = 50;
   var EARLY_EXIT_DEPTH_MAX = 70;
 
-  // Link click behavior
   var CLICK_AFTER_MIN_MS = 1500;
   var CLICK_AFTER_MAX_MS = 3500;
   var SAME_HOST_ONLY = true;
 
-  // Form behavior (realistic probability)
   var ENABLE_FORMS = true;
-  var FORM_SUBMIT_PROB = 0.15; // Lowered to 15% for realism (engaged user conversion rate)
+  var FORM_SUBMIT_PROB = 0.15;
   var FORM_CLICK_HOVER_MS = 400;
-  var FORM_FIELD_DELAY_MIN_MS = 500; // Simulate typing delays per field
+  var FORM_FIELD_DELAY_MIN_MS = 500;
   var FORM_FIELD_DELAY_MAX_MS = 1500;
 
-  // Fake cursor wander with Bezier curve
   var WANDER_STEPS_MIN = 3;
   var WANDER_STEPS_MAX = 6;
   var WANDER_STEP_MS = 250;
   var FINAL_HOVER_MS = 400;
 
-  // Ad and image viewability
-  var AD_PAUSE_MS = 5000; // Pause for ads
-  var IMAGE_PAUSE_MIN_MS = 2000; // New: Pause at images (2-5s)
+  var AD_PAUSE_MS = 3000; // Reduced but sufficient for viewability
+  var IMAGE_PAUSE_MIN_MS = 2000;
   var IMAGE_PAUSE_MAX_MS = 5000;
 
   // ===== Helpers =====
@@ -175,35 +163,32 @@
     return r.bottom > 0 && r.right > 0 && r.left < (window.innerWidth || document.documentElement.clientWidth) && r.top < (window.innerHeight || document.documentElement.clientHeight);
   }
 
-  // --- Enhanced: Pause at headings, ads, and images (human reading behavior) ---
+  // --- Enhanced: Pause at headings, ads, and images ---
   function maybePauseAtHeadingAdOrImage() {
-    // Check for images (new: simulate visual dwell)
     var images = document.querySelectorAll('img, figure, picture');
     for (var i = 0; i < images.length; i++) {
       var el = images[i];
-      if (inViewport(el) && Math.random() < 0.40) { // 40% chance to pause at visible image
+      if (inViewport(el) && Math.random() < 0.40) {
         try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
         console.log('[HumanScroll] Pausing at image:', el.src || el.alt);
         return randInt(IMAGE_PAUSE_MIN_MS, IMAGE_PAUSE_MAX_MS);
       }
     }
 
-    // Check for ads like #gpt-passback2
     var ad = document.querySelector('#gpt-passback2, #gpt-rect1');
     if (ad && inViewport(ad)) {
       try { ad.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
       console.log('[HumanScroll] Pausing at ad:', ad.id);
-      return AD_PAUSE_MS; // 5s for ad viewability
+      return AD_PAUSE_MS;
     }
 
-    // Check for headings
     var heads = document.querySelectorAll('h1,h2,h3');
     for (var i = 0; i < heads.length; i++) {
       var el = heads[i];
       var r = el.getBoundingClientRect();
       if (r.top > 0 && r.top < (window.innerHeight * 0.35)) {
         if (Math.random() < 0.35) {
-          return randInt(1500, 3000); // Dwell 1.5–3s
+          return randInt(1500, 3000);
         }
         break;
       }
@@ -360,7 +345,6 @@
     if (text.includes('logout') || text.includes('delete') || text.includes('unsubscribe')) return false;
     if (form.querySelector('input[type="password"], input[name*="pass"], input[id*="pass"]')) return false;
     if (!findSubmitButton(form)) return false;
-    // Prefer WordPress forms (e.g., Contact Form 7)
     if (form.classList.contains('wpcf7-form') || form.id.includes('contact-form')) {
       console.log('[HumanScroll] Prioritizing WordPress form.');
     }
@@ -406,7 +390,7 @@
   function fillFormFields(form) {
     var textFields = form.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[type="number"], input[type="url"], textarea');
     textFields.forEach(function (el) {
-      setTimeout(function () { fillInput(el); }, randInt(FORM_FIELD_DELAY_MIN_MS, FORM_FIELD_DELAY_MAX_MS)); // Staggered delays for typing simulation
+      setTimeout(function () { fillInput(el); }, randInt(FORM_FIELD_DELAY_MIN_MS, FORM_FIELD_DELAY_MAX_MS));
     });
     var selects = form.querySelectorAll('select');
     selects.forEach(function (sel) {
@@ -472,7 +456,7 @@
     scrollToLinkThenClick(link);
   }
 
-  // ===== Link click flow (reused) =====
+  // ===== Link click flow =====
   function pickRandomLink() {
     var links = getAllCandidateLinks();
     if (!links.length) return null;
@@ -530,13 +514,12 @@
     }, BOTTOM_CONFIRM_MS);
   }
 
-  // ===== Human-like scrolling loop (with variable speed, early exit, backtracking) =====
+  // ===== Human-like scrolling loop =====
   function humanScrollLoop() {
     if (finished) return;
 
     var pct = getPercentScrolled();
 
-    // New: Early exit check (simulate quitting midway)
     if (pct >= randInt(EARLY_EXIT_DEPTH_MIN, EARLY_EXIT_DEPTH_MAX) && Math.random() < EARLY_EXIT_PROB) {
       console.log('[HumanScroll] Early exit at ' + pct + '% depth. Deciding next action…');
       finished = true;
@@ -548,25 +531,20 @@
     if (atBottom()) { finishIfBottomStable(); return; }
 
     var goUp = Math.random() < UP_CHANCE;
-    // Variable scroll delta: Faster at top (skimming), slower at bottom
-    var deltaMultiplier = (pct < 50) ? 1.5 : 0.8; // Faster early, slower later
+    var deltaMultiplier = (pct < 50) ? 1.5 : 0.8;
     var delta = goUp ? -randInt(UP_MIN_PX, UP_MAX_PX) * deltaMultiplier : randInt(DOWN_MIN_PX, DOWN_MAX_PX) * deltaMultiplier;
     window.scrollBy({ top: delta, left: 0, behavior: 'smooth' });
 
-    // Micro-nudge for lazy loads
     if (Math.random() < 0.2) {
       setTimeout(function () { window.scrollBy({ top: 1, left: 0, behavior: 'smooth' }); }, 150);
     }
 
     checkAndSendDepth();
 
-    // Base pause
     var pause = randInt(PAUSE_MIN_MS, PAUSE_MAX_MS);
-    // Pause at headings, ads, or images
     var dwell = maybePauseAtHeadingAdOrImage();
     if (dwell) pause += dwell;
-    // Rare long pause (distraction, 4% chance)
-    if (Math.random() < 0.04) { pause += randInt(5000, 10000); } // 5-10s
+    if (Math.random() < 0.04) { pause += randInt(5000, 10000); }
 
     setTimeout(humanScrollLoop, pause);
   }
