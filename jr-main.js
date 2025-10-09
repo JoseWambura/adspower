@@ -1,3 +1,16 @@
+// ==UserScript==
+// @name         Human-like Scroll → GA4 + Random Link or Form Submit (40%) + Extra Human Tweaks
+// @namespace    http://tampermonkey.net/
+// @version      4.6
+// @description  Human-like scroll with heading-dwell, rare long pauses, micro-nudges; GA4 depth; then 40% safe form submit or random link w/ fake cursor
+// @match        *://jrsports.click/*
+// @run-at       document-idle
+// @noframes
+// @grant        none
+// ==/UserScript==
+
+
+
 (function () {
   'use strict';
   const DEBUG = false;
@@ -6,55 +19,6 @@
   let _seed = Date.now();
   function seededRandom() { _seed ^= _seed << 13; _seed ^= _seed >>> 17; _seed ^= _seed << 5; return (_seed >>> 0) / 0xFFFFFFFF; }
   function randInt(min, max) { return Math.floor(seededRandom() * (max - min + 1)) + min; }
-
-  // ===== Anti-Detection (kept as in prior version) =====
-  (function () {
-    function spoofFingerprint(os, timezone) {
-      const userAgents = {
-        windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
-        macos: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36'
-      };
-      const ua = userAgents[os.toLowerCase()] || userAgents.windows;
-      const props = [
-        { obj: navigator, key: 'userAgent', value: ua },
-        { obj: navigator, key: 'platform', value: os === 'windows' ? 'Win32' : 'MacIntel' },
-        { obj: navigator, key: 'language', value: timezone.includes('America') ? 'en-US' : 'en-GB' },
-        { obj: navigator, key: 'languages', value: [timezone.includes('America') ? 'en-US' : 'en-GB', 'en'] }
-      ];
-      props.forEach(p => { const desc = Object.getOwnPropertyDescriptor(p.obj, p.key); if (desc && desc.configurable) Object.defineProperty(p.obj, p.key, { value: p.value, configurable: true }); });
-      const dtfDesc = Object.getOwnPropertyDescriptor(Intl, 'DateTimeFormat');
-      if (dtfDesc && dtfDesc.configurable) Object.defineProperty(Intl, 'DateTimeFormat', { value: function () { return { resolvedOptions: () => ({ timeZone: timezone }) }; }, configurable: true });
-
-      ['getUserMedia', 'webkitGetUserMedia', 'mozGetUserMedia'].forEach(prop => { const d = Object.getOwnPropertyDescriptor(navigator, prop); if (d && d.configurable) Object.defineProperty(navigator, prop, { value: null, configurable: true }); });
-      const rtcDesc = Object.getOwnPropertyDescriptor(window, 'RTCPeerConnection'); if (rtcDesc && rtcDesc.configurable) Object.defineProperty(window, 'RTCPeerConnection', { value: null, configurable: true });
-
-      const origCtx = HTMLCanvasElement.prototype.getContext;
-      HTMLCanvasElement.prototype.getContext = function (type) {
-        const ctx = origCtx.apply(this, arguments);
-        if (ctx && (type === '2d' || type === 'webgl')) {
-          const origFill = ctx.fillRect;
-          ctx.fillRect = function (x, y, w, h) {
-            const n = seededRandom() * 0.02 - 0.01;
-            return origFill.call(this, x + n, y + n, w, h);
-          };
-          const origGet = ctx.getImageData;
-          ctx.getImageData = function (x, y, w, h) {
-            const data = origGet.call(this, x, y, w, h);
-            if (data && data.data) {
-              for (let i = 0; i < data.data.length; i += 4) {
-                data.data[i] += randInt(-1, 1);
-                data.data[i + 1] += randInt(-1, 1);
-                data.data[i + 2] += randInt(-1, 1);
-              }
-            }
-            return data;
-          };
-        }
-        return ctx;
-      };
-    }
-    spoofFingerprint('windows', 'America/New_York');
-  })();
 
   // ===== Config =====
   const MAX_PAGES = randInt(4, 6), MAX_SESSION_MS = 480000, START_DELAY_MS = randInt(10000, 13000);
@@ -222,7 +186,7 @@
   }
 
   function tryFormFlowOrFallbackToLink() {
-    if (ENABLE_FORMS && seededRandom() < 0.3) { // Reduced to 0.3 for balance
+    if (ENABLE_FORMS && seededRandom() < 0.3) {
       const forms = Array.from(document.querySelectorAll('form')).filter(isDisplayedNode);
       if (forms.length) {
         const form = forms[randInt(0, forms.length - 1)];
@@ -254,7 +218,7 @@
     console.log('[HumanScroll] Session finished after', window.__pageviews_in_tab, 'pages in', Math.round((Date.now() - startTime) / 1000), 'seconds.');
   }
 
-  // ===== Human Scroll Loop (with image/ad/heading pauses + GA hits) =====
+  // ===== Human Scroll Loop =====
   function humanScrollLoop() {
     if (finished) return;
 
@@ -311,16 +275,16 @@
     setTimeout(humanScrollLoop, randInt(PAUSE_MIN_MS, PAUSE_MAX_MS));
   }
 
-  // Kickoff with MutationObserver
+  // ===== Observer and Kickoff =====
   const observer = new MutationObserver(() => {
-    _candidateLinksCache = null; // Invalidate cache on DOM change
+    _candidateLinksCache = null;
     refreshCaches();
     if (DEBUG) console.log('[HumanScroll] DOM changed, caches refreshed');
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
   window.addEventListener('popstate', () => {
-    window.__pageviews_in_tab += 1; // Increment on navigation
+    window.__pageviews_in_tab += 1;
     if (DEBUG) console.log('[HumanScroll] Page navigated, now at', window.__pageviews_in_tab, 'pages');
   });
 
